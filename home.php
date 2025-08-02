@@ -28,6 +28,7 @@ include 'components/wishlist_cart.php';
 
    <!-- custom css file link  -->
    <link rel="stylesheet" href="css/style.css">
+   <link rel="stylesheet" href="css/categories.css">
 
 </head>
 <body>
@@ -56,7 +57,7 @@ include 'components/wishlist_cart.php';
 
       <div class="swiper-slide slide">
          <div class="image">
-            <img src="" alt="">
+            <!-- Removed img tag as requested -->
          </div>
       </div>
    </div>
@@ -68,41 +69,72 @@ include 'components/wishlist_cart.php';
 
 </div>
 
-<section class="category">
+<!-- Updated Categories Section -->
+<section class="category-section">
+      <div class="section-header">
+         <div class="collection-label">OUR COLLECTIONS</div>
+         <h1 class="section-title">Shop By Categories</h1>
+      </div>
+      
+      <div class="categories-grid">
+         <a href="category.php?category=bags" class="category-card premium-bags">
+               <div class="love-icon">
+                  <i class="fas fa-heart"></i>
+               </div>
+               <div class="category-image">
+                  <div class="product-icon">
+                     <!-- school bag image matra !-->
+                     <img src="project images/boyschoolbag.jpg">
+                  </div>
+               </div>
+               <div class="category-content">
+                  <h3 class="category-title">Premium Bags</h3>
+               </div>
+         </a>
 
-   <h1 class="heading">OUR PRODUCTS</h1>
+         <a href="category.php?category=luggage" class="category-card luggage">
+               <div class="love-icon">
+                  <i class="fas fa-heart"></i>
+               </div>
+               <div class="category-image">
+                  <div class="product-icon">
+                     <img src="project images/boyluggage.jpg">
+                  </div>
+               </div>
+               <div class="category-content">
+                  <h3 class="category-title">Durable Luggage</h3>
+               </div>
+         </a>
 
-   <div class="products-grid">
+         <a href="category.php?category=caps" class="category-card caps">
+               <div class="love-icon">
+                  <i class="fas fa-heart"></i>
+               </div>
+               <div class="category-image">
+                  <div class="product-icon">
+                     <i class="fas fa-hat-cowboy"></i>
+                  </div>
+               </div>
+               <div class="category-content">
+                  <h3 class="category-title">Fashionable Caps</h3>
+               </div>
+         </a>
 
-   <a href="category.php?category=bags" class="product-item">
-      <img src="images/school-bag_7466185.png" alt="">
-      <h3>Premimum Bag</h3>
-   </a>
-
-   <a href="category.php?category=luggage" class="product-item">
-      <img src="images/suitcases_1663068.png" alt="">
-      <h3>Durable luggage</h3>
-   </a>
-
-   <a href="category.php?category=caps" class="product-item">
-      <img src="images/cap_2965305.png" alt="">
-      <h3>Fashionable Caps</h3>
-   </a>
-
-   <a href="category.php?category=sidebag" class="product-item">
-      <img src="images/sling-bag_17730131.png" alt="">
-      <h3>Side Bag</h3>
-   </a>
-   <!--
-   <a href="category.php?category=raincoat" class="product-item">
-      <img src="images/raincoat.png" alt="">
-      <h3>Rain Coat</h3>
-   </a>
-!-->
-
-   </div>
-
-</section>
+         <a href="category.php?category=sidebag" class="category-card side-bags">
+               <div class="love-icon">
+                  <i class="fas fa-heart"></i>
+               </div>
+               <div class="category-image">
+                  <div class="product-icon">
+                     <i class="fas fa-user-tie"></i>
+                  </div>
+               </div>
+               <div class="category-content">
+                  <h3 class="category-title">Side Bags</h3>
+               </div>
+         </a>
+      </div>
+   </section>
 
 <section class="home-products">
 
@@ -114,8 +146,8 @@ include 'components/wishlist_cart.php';
 
    <?php
      $select_products = $conn->prepare("SELECT * FROM `products` LIMIT 6"); 
-     $select_products->execute();
-     if($select_products->rowCount() > 0){
+      $select_products->execute();
+      if($select_products->rowCount() > 0){
       while($fetch_product = $select_products->fetch(PDO::FETCH_ASSOC)){
    ?>
    <form action="" method="post" class="swiper-slide slide">
@@ -148,8 +180,6 @@ include 'components/wishlist_cart.php';
 
 </section>
 
-
-
 <script src="https://unpkg.com/swiper@8/swiper-bundle.min.js"></script>
 
 <script src="js/script.js"></script>
@@ -162,7 +192,7 @@ var swiper = new Swiper(".home-slider", {
    pagination: {
       el: ".swiper-pagination",
       clickable:true,
-    },
+   }, 
 });
 
 var swiper = new Swiper(".products-slider", {
@@ -184,6 +214,26 @@ var swiper = new Swiper(".products-slider", {
       },
    },
 });
+
+// Categories interaction script
+document.querySelectorAll('.love-icon').forEach(icon => {
+      icon.addEventListener('click', function(e) {
+         e.preventDefault();
+         e.stopPropagation();
+         
+         // Toggle heart animation
+         this.style.transform = 'scale(1.3)';
+         this.style.background = '#ff6b6b';
+         this.style.color = 'white';
+         
+         setTimeout(() => {
+               this.style.transform = 'scale(1)';
+         }, 200);
+         
+         // Here you can add AJAX call to add/remove from wishlist
+         console.log('Added to wishlist');
+      });
+   });
 
 </script>
 
