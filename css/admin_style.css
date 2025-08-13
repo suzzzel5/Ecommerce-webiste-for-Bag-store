@@ -828,3 +828,68 @@ section{
    }
 
 }
+
+/* === Dashboard Layout: Sidebar + Middle Charts === */
+.dashboard .dashboard-wrapper{
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 2rem;
+  align-items: start;
+}
+
+.dashboard .left-panel{
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.dashboard .left-panel .box{
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 1.6rem;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+  border: 1px solid #e9ecef;
+}
+
+.dashboard .middle-content{
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 1.6rem;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+  border: 1px solid #e9ecef;
+}
+
+.dashboard .top-charts{
+  display: grid;
+  grid-template-columns: repeat(2, minmax(280px, 1fr));
+  gap: 2rem;
+}
+
+.dashboard .chart-container{
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.2rem 1.2rem 1.6rem;
+  border: 1px solid #e9ecef;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+}
+
+.dashboard .chart-container h3{
+  font-size: 2rem;
+  color: #2c3e50;
+  margin-bottom: 1rem;
+}
+
+.dashboard .chart-wrapper{
+  position: relative;
+  width: 100%;
+  height: 360px;
+}
+
+@media (max-width: 1024px){
+  .dashboard .dashboard-wrapper{
+    grid-template-columns: 1fr;
+  }
+  .dashboard .top-charts{
+    grid-template-columns: 1fr;
+  }
+}
