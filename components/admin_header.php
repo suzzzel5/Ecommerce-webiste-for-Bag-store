@@ -1,9 +1,15 @@
 <?php
-   if(isset($message)){
-      foreach($message as $message){
+   // Initialize message array if not set
+   if(!isset($message)) {
+      $message = [];
+   }
+   
+   // Display messages if any exist
+   if(!empty($message) && is_array($message)){
+      foreach($message as $msg){
          echo '
          <div class="message">
-            <span>'.$message.'</span>
+            <span>'.htmlspecialchars($msg).'</span>
             <i class="fas fa-times" onclick="this.parentElement.remove();"></i>
          </div>
          ';
@@ -18,12 +24,13 @@
       <a href="../admin/dashboard.php" class="logo">Nexus<span>/ADMIN</span></a>
 
       <nav class="navbar">
-         <a href="../admin/dashboard.php">Home</a>
-         <a href="../admin/products.php">Products</a>
-         <a href="../admin/placed_orders.php">Orders</a>
-         <a href="../admin/admin_accounts.php">Admins</a>
-         <a href="../admin/users_accounts.php">Users</a>
-         <a href="../admin/messages.php">Messages</a>
+         <a href="../admin/dashboard.php" <?= (isset($_SERVER['PHP_SELF']) && basename($_SERVER['PHP_SELF']) == 'dashboard.php') ? 'class="active"' : ''; ?>>Home</a>
+         <a href="../admin/products.php" <?= (isset($_SERVER['PHP_SELF']) && basename($_SERVER['PHP_SELF']) == 'products.php') ? 'class="active"' : ''; ?>>Products</a>
+         <a href="../admin/stock_alerts.php" <?= (isset($_SERVER['PHP_SELF']) && basename($_SERVER['PHP_SELF']) == 'stock_alerts.php') ? 'class="active"' : ''; ?>>Stock Alerts</a>
+         <a href="../admin/placed_orders.php" <?= (isset($_SERVER['PHP_SELF']) && basename($_SERVER['PHP_SELF']) == 'placed_orders.php') ? 'class="active"' : ''; ?>>Orders</a>
+         <a href="../admin/admin_accounts.php" <?= (isset($_SERVER['PHP_SELF']) && basename($_SERVER['PHP_SELF']) == 'admin_accounts.php') ? 'class="active"' : ''; ?>>Admins</a>
+         <a href="../admin/users_accounts.php" <?= (isset($_SERVER['PHP_SELF']) && basename($_SERVER['PHP_SELF']) == 'users_accounts.php') ? 'class="active"' : ''; ?>>Users</a>
+         <a href="../admin/messages.php" <?= (isset($_SERVER['PHP_SELF']) && basename($_SERVER['PHP_SELF']) == 'messages.php') ? 'class="active"' : ''; ?>>Messages</a>
       </nav>
 
       <div class="icons">
@@ -33,11 +40,21 @@
 
       <div class="profile">
          <?php
-            $select_profile = $conn->prepare("SELECT * FROM `admins` WHERE id = ?");
-            $select_profile->execute([$admin_id]);
-            $fetch_profile = $select_profile->fetch(PDO::FETCH_ASSOC);
+            // Check if database connection and admin_id are available
+            if(isset($conn) && isset($admin_id)) {
+               $select_profile = $conn->prepare("SELECT * FROM `admins` WHERE id = ?");
+               $select_profile->execute([$admin_id]);
+               $fetch_profile = $select_profile->fetch(PDO::FETCH_ASSOC);
+               
+               if($fetch_profile) {
+                  echo '<p>'.htmlspecialchars($fetch_profile['name']).'</p>';
+               } else {
+                  echo '<p>Admin</p>';
+               }
+            } else {
+               echo '<p>Admin</p>';
+            }
          ?>
-         <p><?= $fetch_profile['name']; ?></p>
          <a href="../admin/update_profile.php" class="btn">Update Profile</a>
          <div class="flex-btn">
             <a href="../admin/register_admin.php" class="option-btn">Register</a>
