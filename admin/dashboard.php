@@ -72,6 +72,34 @@ foreach ($users_data as $user) {
    $user_totals[] = $user['total_spent'];
 }
 
+// Get stock alerts data
+$select_stock_alerts = $conn->prepare("
+   SELECT sa.*, p.name as product_name, p.sku, p.stock_quantity, p.min_stock_level, p.image_01
+   FROM `stock_alerts` sa
+   JOIN `products` p ON sa.product_id = p.id
+   WHERE (sa.alert_type = 'low_stock' AND p.stock_quantity <= p.min_stock_level AND p.stock_quantity > 0)
+      OR (sa.alert_type = 'out_of_stock' AND p.stock_quantity = 0)
+   ORDER BY sa.created_at DESC
+   LIMIT 5
+");
+$select_stock_alerts->execute();
+$stock_alerts = $select_stock_alerts->fetchAll(PDO::FETCH_ASSOC);
+
+// Get stock alert statistics
+$select_stock_stats = $conn->prepare("
+   SELECT 
+      COUNT(*) as total_alerts,
+      SUM(CASE WHEN sa.is_read = 0 THEN 1 ELSE 0 END) as unread_alerts,
+      SUM(CASE WHEN sa.alert_type = 'low_stock' THEN 1 ELSE 0 END) as low_stock_count,
+      SUM(CASE WHEN sa.alert_type = 'out_of_stock' THEN 1 ELSE 0 END) as out_of_stock_count
+   FROM `stock_alerts` sa
+   JOIN `products` p ON sa.product_id = p.id
+   WHERE (sa.alert_type = 'low_stock' AND p.stock_quantity <= p.min_stock_level AND p.stock_quantity > 0)
+      OR (sa.alert_type = 'out_of_stock' AND p.stock_quantity = 0)
+");
+$select_stock_stats->execute();
+$stock_stats = $select_stock_stats->fetch(PDO::FETCH_ASSOC);
+
 
 ?>
 
@@ -148,8 +176,15 @@ foreach ($users_data as $user) {
                      <span class="badge"><?= $number_of_messages ?></span>
                   </a>
                </li>
+               <li>
+                  <a href="stock_alerts.php">
+                     <i class="fas fa-exclamation-triangle"></i>
+                     <span>Stock Alerts</span>
+                     <span class="badge alert"><?= $stock_stats['unread_alerts'] ?? 0 ?></span>
+                  </a>
+               </li>
             </ul>
-         </nav>
+         </nav>   
 
          <div class="quick-stats">
             <div class="stat-item">
@@ -171,6 +206,54 @@ foreach ($users_data as $user) {
                   <p>Nrs.<?= $total_completes; ?>/-</p>
                </div>
             </div>
+         </div>
+
+         <!-- Stock Alerts Section -->
+         <div class="stock-alerts-section">
+            <div class="section-header">
+               <h3><i class="fas fa-exclamation-triangle"></i> Stock Alerts</h3>
+               <a href="stock_alerts.php" class="view-all">View All</a>
+            </div>
+            
+            <?php if($stock_stats['total_alerts'] > 0): ?>
+               <div class="alerts-summary">
+                  <div class="alert-stat">
+                     <span class="count"><?= $stock_stats['unread_alerts'] ?? 0 ?></span>
+                     <span class="label">Unread</span>
+                  </div>
+                  <div class="alert-stat">
+                     <span class="count low"><?= $stock_stats['low_stock_count'] ?? 0 ?></span>
+                     <span class="label">Low Stock</span>
+                  </div>
+                  <div class="alert-stat">
+                     <span class="count out"><?= $stock_stats['out_of_stock_count'] ?? 0 ?></span>
+                     <span class="label">Out of Stock</span>
+                  </div>
+               </div>
+
+               <div class="recent-alerts">
+                  <?php foreach($stock_alerts as $alert): ?>
+                     <div class="alert-item <?= $alert['is_read'] ? 'read' : 'unread' ?>">
+                        <div class="alert-icon">
+                           <i class="fas fa-<?= $alert['alert_type'] == 'out_of_stock' ? 'times-circle' : 'exclamation-circle' ?>"></i>
+                        </div>
+                        <div class="alert-content">
+                           <h4><?= htmlspecialchars($alert['product_name']) ?></h4>
+                           <p class="alert-message">
+                              <?= $alert['alert_type'] == 'out_of_stock' ? 'Out of stock' : 'Low stock (' . $alert['stock_quantity'] . ' remaining)' ?>
+                           </p>
+                           <small class="alert-time"><?= date('M j, Y', strtotime($alert['created_at'])) ?></small>
+                        </div>
+                     </div>
+                  <?php endforeach; ?>
+               </div>
+            <?php else: ?>
+               <div class="no-alerts">
+                  <i class="fas fa-check-circle"></i>
+                  <p>No stock alerts</p>
+                  <small>All products are well stocked</small>
+               </div>
+            <?php endif; ?>
          </div>
       </div>
 
