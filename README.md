@@ -11,7 +11,7 @@ UI/UX: modern gradient styling, badges, responsive tables for orders/users, hove
 Security: session checks, CSRF token on forms, input validation/sanitization, prepared statements everywhere.
 Checkout: validate name/phone/email/address; verify cart totals and stock before placing order; generate friendly messages; for online payment, integrate eSewa (sandbox/production), HMAC signature over required fields, success/failure callbacks and server-side verification before creating finalized paid orders. Keep Cash on Delivery flow intact.
 Reporting: basic counts (orders/users/products/messages), top spenders chart, pending vs completed totals.
-Code quality: readable names, guard clauses, minimal nesting, no inline secrets, consistent formatting, no unused code, no SQL in views except prepared statements.
+Code quality: readable names, guard clauses, minimal nesting, no inline secrets, cobnsistent formatting, no unused code, no SQL in views except prepared statements.
 Deliverables:
 Fully working app under C:\xampp\htdocs\projectdone
 Clean PHP files per current structure
