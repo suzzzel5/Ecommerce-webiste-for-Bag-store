@@ -32,6 +32,58 @@ if(isset($_POST['update_qty'])){
    $message[] = 'cart quantity updated';
 }
 
+// ADD TO CART FUNCTIONALITY FOR RECOMMENDED PRODUCTS
+if(isset($_POST['add_to_cart'])){
+   if($user_id == ''){
+      header('location:user_login.php');
+   }else{
+      $pid = $_POST['pid'];
+      $name = $_POST['name'];
+      $price = $_POST['price'];
+      $image = $_POST['image'];
+      $qty = $_POST['qty'];
+
+      $check_cart_numbers = $conn->prepare("SELECT * FROM `cart` WHERE name = ? AND user_id = ?");
+      $check_cart_numbers->execute([$name, $user_id]);
+
+      if($check_cart_numbers->rowCount() > 0){
+         $message[] = 'already added to cart!';
+      }else{
+         $insert_cart = $conn->prepare("INSERT INTO `cart`(user_id, pid, name, price, quantity, image) VALUES(?,?,?,?,?,?)");
+         $insert_cart->execute([$user_id, $pid, $name, $price, $qty, $image]);
+         $message[] = 'added to cart!';
+      }
+   }
+}
+
+// ADD TO WISHLIST FUNCTIONALITY FOR RECOMMENDED PRODUCTS
+if(isset($_POST['add_to_wishlist'])){
+   if($user_id == ''){
+      header('location:user_login.php');
+   }else{
+      $pid = $_POST['pid'];
+      $name = $_POST['name'];
+      $price = $_POST['price'];
+      $image = $_POST['image'];
+
+      $check_wishlist_numbers = $conn->prepare("SELECT * FROM `wishlist` WHERE name = ? AND user_id = ?");
+      $check_wishlist_numbers->execute([$name, $user_id]);
+
+      $check_cart_numbers = $conn->prepare("SELECT * FROM `cart` WHERE name = ? AND user_id = ?");
+      $check_cart_numbers->execute([$name, $user_id]);
+
+      if($check_wishlist_numbers->rowCount() > 0){
+         $message[] = 'already added to wishlist!';
+      }elseif($check_cart_numbers->rowCount() > 0){
+         $message[] = 'already added to cart!';
+      }else{
+         $insert_wishlist = $conn->prepare("INSERT INTO `wishlist`(user_id, pid, name, price, image) VALUES(?,?,?,?,?)");
+         $insert_wishlist->execute([$user_id, $pid, $name, $price, $image]);
+         $message[] = 'added to wishlist!';
+      }
+   }
+}
+
 ?>
 
 <!DOCTYPE html>
@@ -57,6 +109,20 @@ if(isset($_POST['update_qty'])){
 
    <h3 class="heading">Shopping cart</h3>
 
+   <?php
+      // Count total items in cart
+      $count_cart = $conn->prepare("SELECT COUNT(*) as total_items FROM `cart` WHERE user_id = ?");
+      $count_cart->execute([$user_id]);
+      $cart_count = $count_cart->fetch(PDO::FETCH_ASSOC)['total_items'];
+   ?>
+
+   <div class="cart-info">
+      <div class="cart-summary">
+         <span class="item-count"><?= $cart_count; ?> item<?= $cart_count != 1 ? 's' : ''; ?> in cart</span>
+         <span class="cart-status"><?= $cart_count > 0 ? 'Ready to checkout' : 'Cart is empty'; ?></span>
+      </div>
+   </div>
+
    <div class="box-container">
 
    <?php
@@ -66,36 +132,80 @@ if(isset($_POST['update_qty'])){
       if($select_cart->rowCount() > 0){
          while($fetch_cart = $select_cart->fetch(PDO::FETCH_ASSOC)){
    ?>
-   <form action="" method="post" class="box">
-      <input type="hidden" name="cart_id" value="<?= $fetch_cart['id']; ?>">
+   <div class="box">
       <a href="quick_view.php?pid=<?= $fetch_cart['pid']; ?>" class="fas fa-eye"></a>
       <img src="uploaded_img/<?= $fetch_cart['image']; ?>" alt="">
       <div class="name"><?= $fetch_cart['name']; ?></div>
-      <div class="flex">
-         <div class="price">Nrs.<?= $fetch_cart['price']; ?>/-</div>
-         <input type="number" name="qty" class="qty" min="1" max="99" onkeypress="if(this.value.length == 2) return false;" value="<?= $fetch_cart['quantity']; ?>">
-         <button type="submit" class="fas fa-edit" name="update_qty"></button>
-      </div>
+      
+      <!-- Update Quantity Form -->
+      <form action="" method="post" class="update-form">
+         <input type="hidden" name="cart_id" value="<?= $fetch_cart['id']; ?>">
+         <div class="flex">
+            <div class="price">Nrs.<?= $fetch_cart['price']; ?>/-</div>
+            <input type="number" name="qty" class="qty" min="1" max="99" onkeypress="if(this.value.length == 2) return false;" value="<?= $fetch_cart['quantity']; ?>">
+            <button type="submit" class="fas fa-edit" name="update_qty"></button>
+         </div>
+      </form>
+      
       <div class="sub-total"> Sub Total : <span>Nrs<?= $sub_total = ($fetch_cart['price'] * $fetch_cart['quantity']); ?>/-</span> </div>
-      <input type="submit" value="delete item" onclick="return confirm('delete this from cart?');" class="delete-btn" name="delete">
-   </form>
+      
+      <!-- Delete Form -->
+      <form action="" method="post" class="delete-form">
+         <input type="hidden" name="cart_id" value="<?= $fetch_cart['id']; ?>">
+         <input type="submit" value="delete item" onclick="return confirm('delete this from cart?');" class="delete-btn" name="delete">
+      </form>
+   </div>
    <?php
    $grand_total += $sub_total;
       }
    }else{
-      echo '<p class="empty">your cart is empty</p>';
+      echo '<div class="empty-cart">
+               <div class="empty-cart-icon">
+                  <i class="fas fa-shopping-cart"></i>
+               </div>
+               <h3>Your cart is empty</h3>
+               <p>Looks like you haven\'t added any items to your cart yet.</p>
+               <a href="shop.php" class="btn">Start Shopping</a>
+            </div>';
    }
    ?>
    </div>
 
+   <?php if($grand_total > 0): ?>
    <div class="cart-total">
-      <p>Grand Total : <span>Nrs.<?= $grand_total; ?>/-</span></p>
-      <a href="shop.php" class="option-btn">Continue Shopping.</a>
-      <a href="cart.php?delete_all" class="delete-btn <?= ($grand_total > 1)?'':'disabled'; ?>" onclick="return confirm('delete all from cart?');">Delete All Items ?</a>
-      <a href="checkout.php" class="btn <?= ($grand_total > 1)?'':'disabled'; ?>">Proceed to Checkout.</a>
+      <div class="total-summary">
+         <div class="total-line">
+            <span>Subtotal:</span>
+            <span>Nrs.<?= $grand_total; ?>/-</span>
+         </div>
+         <div class="total-line shipping">
+            <span>Shipping:</span>
+            <span>Free</span>
+         </div>
+         <div class="total-line final-total">
+            <span>Total:</span>
+            <span>Nrs.<?= $grand_total; ?>/-</span>
+         </div>
+      </div>
+      <div class="cart-actions">
+         <a href="shop.php" class="option-btn">
+            <i class="fas fa-arrow-left"></i>
+            Continue Shopping
+         </a>
+         <a href="cart.php?delete_all" class="delete-btn" onclick="return confirm('delete all from cart?');">
+            <i class="fas fa-trash"></i>
+            Clear Cart
+         </a>
+         <a href="checkout.php" class="btn">
+            <i class="fas fa-credit-card"></i>
+            Proceed to Checkout
+         </a>
+      </div>
    </div>
+   <?php endif; ?>
 
 </section>
+
 <!-- for prd recommendation on the basis of product you added to cart !-->
 <section class="products">
 
@@ -167,14 +277,12 @@ if(isset($_POST['update_qty'])){
          } else {
             echo '<p class="empty">No recommended items available yet!</p>';
          }
+      } else {
+         echo '<p class="empty">Add items to cart to see recommendations!</p>';
       }
    ?>
    </div>
 </section>
-
-
-
-
 
 <script src="js/script.js"></script>
 
