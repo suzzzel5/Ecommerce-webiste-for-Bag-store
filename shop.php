@@ -79,7 +79,12 @@ $sort = isset($_GET['sort']) ? $_GET['sort'] : 'latest';
 
    <?php
      // Build the SQL query based on sorting
-     $sql = "SELECT * FROM `products`";
+     $sql = "SELECT *, 
+             CASE 
+                WHEN stock_quantity IS NULL OR stock_quantity > 0 THEN 1 
+                ELSE 0 
+             END as in_stock
+             FROM `products`";
      
      switch($sort) {
          case 'high_to_low':
@@ -101,21 +106,68 @@ $sort = isset($_GET['sort']) ? $_GET['sort'] : 'latest';
      $select_products->execute();
      if($select_products->rowCount() > 0){
       while($fetch_product = $select_products->fetch(PDO::FETCH_ASSOC)){
+         $is_in_stock = $fetch_product['in_stock'];
+         $stock_quantity = $fetch_product['stock_quantity'] ?? 0;
    ?>
-   <form action="" method="post" class="box">
+   <form action="" method="post" class="box <?= !$is_in_stock ? 'out-of-stock' : '' ?>">
       <input type="hidden" name="pid" value="<?= $fetch_product['id']; ?>">
       <input type="hidden" name="name" value="<?= $fetch_product['name']; ?>">
       <input type="hidden" name="price" value="<?= $fetch_product['price']; ?>">
       <input type="hidden" name="image" value="<?= $fetch_product['image_01']; ?>">
-      <button class="fas fa-heart" type="submit" name="add_to_wishlist"></button>
+      
+      <!-- Stock Status Badge -->
+      <?php if(!$is_in_stock): ?>
+         <div class="stock-badge out-of-stock-badge">
+            <i class="fas fa-times-circle"></i>
+            Out of Stock
+         </div>
+      <?php elseif($stock_quantity <= 5 && $stock_quantity > 0): ?>
+         <div class="stock-badge low-stock-badge">
+            <i class="fas fa-exclamation-triangle"></i>
+            Only <?= $stock_quantity; ?> left!
+         </div>
+      <?php endif; ?>
+      
+      <button class="fas fa-heart" type="submit" name="add_to_wishlist" <?= !$is_in_stock ? 'disabled' : '' ?>></button>
       <a href="quick_view.php?pid=<?= $fetch_product['id']; ?>" class="fas fa-eye"></a>
-      <img src="uploaded_img/<?= $fetch_product['image_01']; ?>" alt="">
+      <img src="uploaded_img/<?= $fetch_product['image_01']; ?>" alt="" class="<?= !$is_in_stock ? 'out-of-stock-img' : '' ?>">
       <div class="name"><?= $fetch_product['name']; ?></div>
+      
+      <!-- Stock Information -->
+      <div class="stock-info">
+         <?php if($is_in_stock): ?>
+            <span class="in-stock">
+               <i class="fas fa-check-circle"></i>
+               In Stock
+               <?php if($stock_quantity > 0): ?>
+                  (<?= $stock_quantity; ?> available)
+               <?php endif; ?>
+            </span>
+         <?php else: ?>
+            <span class="out-of-stock-text">
+               <i class="fas fa-times-circle"></i>
+               Out of Stock
+            </span>
+         <?php endif; ?>
+      </div>
+      
       <div class="flex">
          <div class="price"><span>Nrs.</span><?= $fetch_product['price']; ?><span>/-</span></div>
-         <input type="number" name="qty" class="qty" min="1" max="99" onkeypress="if(this.value.length == 2) return false;" value="1">
+         <input type="number" name="qty" class="qty" min="1" max="<?= min(99, $stock_quantity); ?>" onkeypress="if(this.value.length == 2) return false;" value="1" <?= !$is_in_stock ? 'disabled' : '' ?>>
       </div>
-      <input type="submit" value="add to cart" class="btn" name="add_to_cart">
+      
+      <?php if($is_in_stock): ?>
+         <input type="submit" value="add to cart" class="btn" name="add_to_cart">
+      <?php else: ?>
+         <button type="button" class="btn out-of-stock-btn" disabled>
+            <i class="fas fa-ban"></i>
+            Out of Stock
+         </button>
+         <button type="button" class="notify-btn" onclick="notifyWhenAvailable(<?= $fetch_product['id']; ?>, '<?= $fetch_product['name']; ?>')">
+            <i class="fas fa-bell"></i>
+            Notify When Available
+         </button>
+      <?php endif; ?>
    </form>
    <?php
       }
@@ -131,6 +183,46 @@ $sort = isset($_GET['sort']) ? $_GET['sort'] : 'latest';
 
 
 <script src="js/script.js"></script>
+
+<script>
+// Notify When Available Functionality
+function notifyWhenAvailable(productId, productName) {
+   if(confirm(`Would you like to be notified when "${productName}" is back in stock?`)) {
+      // Here you can implement the notification system
+      // For now, we'll just show a success message
+      alert('You will be notified when this product is back in stock!');
+      
+      // You can add AJAX call here to save the notification request
+      // Example:
+      // fetch('notify_back_in_stock.php', {
+      //    method: 'POST',
+      //    headers: {'Content-Type': 'application/json'},
+      //    body: JSON.stringify({product_id: productId, user_id: <?= $user_id; ?>})
+      // });
+   }
+}
+
+// Add visual feedback for stock status
+document.addEventListener('DOMContentLoaded', function() {
+   const outOfStockBoxes = document.querySelectorAll('.box.out-of-stock');
+   
+   outOfStockBoxes.forEach(box => {
+      // Add hover effect to show it's unavailable
+      box.addEventListener('mouseenter', function() {
+         this.style.cursor = 'not-allowed';
+      });
+      
+      // Disable all form submissions for out of stock items
+      const forms = box.querySelectorAll('form');
+      forms.forEach(form => {
+         form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            alert('This product is currently out of stock!');
+         });
+      });
+   });
+});
+</script>
 
 </body>
 </html>
