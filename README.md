@@ -28,7 +28,7 @@ CSS in css/style.css and css/admin_style.css
 JS in js/script.js and js/admin_script.js
 SQL schema/setup in database_setup.sql
 Admin and user navigation wired with correct routes and session protection
-All listed pages rendering without PHP notices and with graceful empty states
+All listed pagess rendering without PHP notices and with graceful empty states
 
 
 more info- maharjansujal0@gmail.com
