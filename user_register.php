@@ -1,6 +1,7 @@
 <?php
 
 include 'components/connect.php';
+include 'components/mailer.php';
 
 session_start();
 
@@ -105,7 +106,23 @@ if(isset($_POST['submit'])){
             // Insert user
             $insert_user = $conn->prepare("INSERT INTO `users`(name, email, password, phone, address) VALUES(?,?,?,?,?)");
             $insert_user->execute([$name, $email, $hashed_pass, $phone, $address]);
-            $message[] = 'Registered successfully, please login now!';
+
+            // Send welcome email (non-blocking best-effort)
+            $subject = 'Welcome to Nexus Bag, ' . htmlspecialchars($name) . '!';
+            $body    = '<div style="font-family:Arial,sans-serif;font-size:14px;color:#333;">
+                <h2 style="color:#2c3e50;">Welcome, ' . htmlspecialchars($name) . '!</h2>
+                <p>Thanks for registering at <strong>Nexus Bag</strong>.</p>
+                <p>You can now log in and start shopping:</p>
+                <p><a href="' . htmlspecialchars((isset($_SERVER['HTTP_HOST']) ? 'http://' . $_SERVER['HTTP_HOST'] : '') . '/projectdone/user_login.php') . '" style="background:#27ae60;color:#fff;padding:10px 16px;text-decoration:none;border-radius:4px;display:inline-block;">Login Now</a></p>
+                <hr style="border:none;border-top:1px solid #eee;margin:20px 0;"/>
+                <p style="font-size:12px;color:#777;">If you did not create this account, please ignore this email.</p>
+            </div>';
+            $sent = send_mail($email, $subject, $body);
+            if ($sent) {
+                $message[] = 'Registered successfully. A welcome email was sent to ' . htmlspecialchars($email) . '.';
+            } else {
+                $message[] = 'Registered successfully, but we could not send the welcome email.';
+            }
         }
     } else {
         // Display validation errors
