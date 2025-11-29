@@ -25,11 +25,43 @@ if(isset($_GET['delete_all'])){
 
 if(isset($_POST['update_qty'])){
    $cart_id = $_POST['cart_id'];
+   $cart_id = filter_var($cart_id, FILTER_SANITIZE_STRING);
    $qty = $_POST['qty'];
-   $qty = filter_var($qty, FILTER_SANITIZE_STRING);
+   $qty = (int) filter_var($qty, FILTER_SANITIZE_NUMBER_INT);
+   if($qty < 1){
+      $qty = 1;
+   }
+
+   // Limit quantity according to product stock
+   $cart_stmt = $conn->prepare("SELECT pid FROM `cart` WHERE id = ? AND user_id = ?");
+   $cart_stmt->execute([$cart_id, $user_id]);
+
+   if($cart_stmt->rowCount() > 0){
+      $cart_row = $cart_stmt->fetch(PDO::FETCH_ASSOC);
+      $pid = $cart_row['pid'];
+
+      $product_stmt = $conn->prepare("SELECT stock_quantity FROM `products` WHERE id = ?");
+      $product_stmt->execute([$pid]);
+
+      if($product_stmt->rowCount() > 0){
+         $product_row = $product_stmt->fetch(PDO::FETCH_ASSOC);
+         $available_stock = isset($product_row['stock_quantity']) ? (int)$product_row['stock_quantity'] : null;
+
+         if($available_stock !== null && $available_stock > 0 && $qty > $available_stock){
+            $qty = $available_stock;
+            $message[] = 'only '. $available_stock .' left in stock! quantity adjusted.';
+         } elseif($available_stock !== null && $available_stock <= 0){
+            // Product is out of stock, remove it from cart
+            $delete_cart_item = $conn->prepare("DELETE FROM `cart` WHERE id = ?");
+            $delete_cart_item->execute([$cart_id]);
+            $message[] = 'product is out of stock and was removed from your cart!';
+            return;
+         }
+      }
+   }
+
    $update_qty = $conn->prepare("UPDATE `cart` SET quantity = ? WHERE id = ?");
    $update_qty->execute([$qty, $cart_id]);
-   $message[] = 'cart quantity updated';
 }
 
 // ADD TO CART FUNCTIONALITY FOR RECOMMENDED PRODUCTS
@@ -127,10 +159,15 @@ if(isset($_POST['add_to_wishlist'])){
 
    <?php
       $grand_total = 0;
-      $select_cart = $conn->prepare("SELECT * FROM `cart` WHERE user_id = ?");
+      // Join with products to get stock information for each cart item
+      $select_cart = $conn->prepare("SELECT c.*, p.stock_quantity FROM `cart` c LEFT JOIN `products` p ON c.pid = p.id WHERE c.user_id = ?");
       $select_cart->execute([$user_id]);
       if($select_cart->rowCount() > 0){
          while($fetch_cart = $select_cart->fetch(PDO::FETCH_ASSOC)){
+            $item_stock = isset($fetch_cart['stock_quantity']) && $fetch_cart['stock_quantity'] !== null
+               ? (int)$fetch_cart['stock_quantity']
+               : 99; // fallback if stock not defined
+            $max_qty = max(1, min(99, $item_stock));
    ?>
    <div class="box">
       <a href="quick_view.php?pid=<?= $fetch_cart['pid']; ?>" class="fas fa-eye"></a>
@@ -142,7 +179,7 @@ if(isset($_POST['add_to_wishlist'])){
          <input type="hidden" name="cart_id" value="<?= $fetch_cart['id']; ?>">
          <div class="flex">
             <div class="price">Nrs.<?= $fetch_cart['price']; ?>/-</div>
-            <input type="number" name="qty" class="qty" min="1" max="99" onkeypress="if(this.value.length == 2) return false;" value="<?= $fetch_cart['quantity']; ?>">
+            <input type="number" name="qty" class="qty" min="1" max="<?= $max_qty; ?>" onkeypress="if(this.value.length == 2) return false;" value="<?= min($fetch_cart['quantity'], $max_qty); ?>">
             <button type="submit" class="fas fa-edit" name="update_qty"></button>
          </div>
       </form>
@@ -152,7 +189,7 @@ if(isset($_POST['add_to_wishlist'])){
       <!-- Delete Form -->
       <form action="" method="post" class="delete-form">
          <input type="hidden" name="cart_id" value="<?= $fetch_cart['id']; ?>">
-         <input type="submit" value="delete item" onclick="return confirm('delete this from cart?');" class="delete-btn" name="delete">
+         <input type="submit" value="delete item" class="delete-btn cart-delete-item" name="delete">
       </form>
    </div>
    <?php
@@ -192,7 +229,7 @@ if(isset($_POST['add_to_wishlist'])){
             <i class="fas fa-arrow-left"></i>
             Continue Shopping
          </a>
-         <a href="cart.php?delete_all" class="delete-btn" onclick="return confirm('delete all from cart?');">
+         <a href="cart.php?delete_all" class="delete-btn" id="cart-clear-all">
             <i class="fas fa-trash"></i>
             Clear Cart
          </a>
@@ -205,6 +242,59 @@ if(isset($_POST['add_to_wishlist'])){
    <?php endif; ?>
 
 </section>
+
+<script>
+// SweetAlert confirms for cart actions
+document.addEventListener('DOMContentLoaded', function () {
+   // Delete single cart item
+   var deleteButtons = document.querySelectorAll('.cart-delete-item');
+   if (typeof Swal !== 'undefined') {
+      deleteButtons.forEach(function (btn) {
+         btn.addEventListener('click', function (e) {
+            e.preventDefault();
+            var form = this.closest('form');
+            Swal.fire({
+               title: 'Remove this item?',
+               text: 'This item will be removed from your cart.',
+               icon: 'warning',
+               showCancelButton: true,
+               confirmButtonColor: '#e74c3c',
+               cancelButtonColor: '#6c757d',
+               confirmButtonText: 'Yes, remove it',
+               cancelButtonText: 'Cancel'
+            }).then(function (result) {
+               if (result.isConfirmed) {
+                  form.submit();
+               }
+            });
+         });
+      });
+
+      // Clear all cart items
+      var clearAllLink = document.getElementById('cart-clear-all');
+      if (clearAllLink) {
+         clearAllLink.addEventListener('click', function (e) {
+            e.preventDefault();
+            var href = this.getAttribute('href');
+            Swal.fire({
+               title: 'Clear entire cart?',
+               text: 'All items will be removed from your cart.',
+               icon: 'warning',
+               showCancelButton: true,
+               confirmButtonColor: '#e74c3c',
+               cancelButtonColor: '#6c757d',
+               confirmButtonText: 'Yes, clear it',
+               cancelButtonText: 'Cancel'
+            }).then(function (result) {
+               if (result.isConfirmed) {
+                  window.location.href = href;
+               }
+            });
+         });
+      }
+   }
+});
+</script>
 
 <!-- for prd recommendation on the basis of product you added to cart !-->
 <section class="products">
@@ -256,21 +346,60 @@ if(isset($_POST['add_to_wishlist'])){
 
          if($get_recommended->rowCount() > 0){
             while($rec = $get_recommended->fetch(PDO::FETCH_ASSOC)){
+               $stock_quantity = isset($rec['stock_quantity']) ? (int)$rec['stock_quantity'] : 0;
+               $is_in_stock = (!isset($rec['stock_quantity']) || $rec['stock_quantity'] > 0) ? 1 : 0;
    ?>
-   <form action="" method="post" class="box">
+   <form action="" method="post" class="box <?= !$is_in_stock ? 'out-of-stock' : '' ?>">
       <input type="hidden" name="pid" value="<?= $rec['id']; ?>">
       <input type="hidden" name="name" value="<?= $rec['name']; ?>">
       <input type="hidden" name="price" value="<?= $rec['price']; ?>">
       <input type="hidden" name="image" value="<?= $rec['image_01']; ?>">
-      <button class="fas fa-heart" type="submit" name="add_to_wishlist"></button>
+      <!-- Stock Status Badge -->
+      <?php if(!$is_in_stock): ?>
+         <div class="stock-badge out-of-stock-badge">
+            <i class="fas fa-times-circle"></i>
+            Out of Stock
+         </div>
+      <?php elseif($stock_quantity <= 5 && $stock_quantity > 0): ?>
+         <div class="stock-badge low-stock-badge">
+            <i class="fas fa-exclamation-triangle"></i>
+            Only <?= $stock_quantity; ?> left!
+         </div>
+      <?php endif; ?>
+
+      <button class="fas fa-heart" type="submit" name="add_to_wishlist" <?= !$is_in_stock ? 'disabled' : '' ?>></button>
       <a href="quick_view.php?pid=<?= $rec['id']; ?>" class="fas fa-eye"></a>
-      <img src="uploaded_img/<?= $rec['image_01']; ?>" alt="">
+      <img src="uploaded_img/<?= $rec['image_01']; ?>" alt="" class="<?= !$is_in_stock ? 'out-of-stock-img' : '' ?>">
       <div class="name"><?= $rec['name']; ?></div>
+      <!-- Stock Information -->
+      <div class="stock-info">
+         <?php if($is_in_stock): ?>
+            <span class="in-stock">
+               <i class="fas fa-check-circle"></i>
+               In Stock
+               <?php if($stock_quantity > 0): ?>
+                  (<?= $stock_quantity; ?> available)
+               <?php endif; ?>
+            </span>
+         <?php else: ?>
+            <span class="out-of-stock-text">
+               <i class="fas fa-times-circle"></i>
+               Out of Stock
+            </span>
+         <?php endif; ?>
+      </div>
       <div class="flex">
          <div class="price"><span>Nrs.</span><?= $rec['price']; ?><span>/-</span></div>
-         <input type="number" name="qty" class="qty" min="1" max="99" value="1">
+         <input type="number" name="qty" class="qty" min="1" max="<?= min(99, $stock_quantity); ?>" value="1" <?= !$is_in_stock ? 'disabled' : '' ?>>
       </div>
-      <input type="submit" value="Add to Cart" class="btn" name="add_to_cart">
+      <?php if($is_in_stock): ?>
+         <input type="submit" value="Add to Cart" class="btn" name="add_to_cart">
+      <?php else: ?>
+         <button type="button" class="btn out-of-stock-btn" disabled>
+            <i class="fas fa-ban"></i>
+            Out of Stock
+         </button>
+      <?php endif; ?>
    </form>
    <?php
             }
@@ -288,4 +417,3 @@ if(isset($_POST['add_to_wishlist'])){
 
 </body>
 </html>
-
