@@ -47,20 +47,37 @@ if(isset($_POST['submit'])){
         $errors[] = 'Email is required!';
     } elseif(!filter_var($email, FILTER_VALIDATE_EMAIL)){
         $errors[] = 'Please enter a valid email address!';
-    } elseif(strlen($email) > 50){
-        $errors[] = 'Email cannot exceed 50 characters!';
+    } else {
+        $atPos = strpos($email, '@');
+        $localPart = substr($email, 0, $atPos);
+        $domainPart = substr($email, $atPos + 1);
+
+        // local part (before @) must contain at least one letter, so emails like 123@gmail.com are invalid
+        if(!preg_match('/[A-Za-z]/', $localPart)){
+            $errors[] = 'Email username must contain at least one letter!';
+        } elseif(strlen($email) > 50){
+            $errors[] = 'Email cannot exceed 50 characters!';
+        } else {
+            // Enforce a more realistic domain pattern and block abc@abc.abc style emails
+            if(!preg_match('/^[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+)\.([A-Za-z]{2,10})$/', $email, $m)){
+                $errors[] = 'Please enter a valid email address (for example: name@example.com)!';
+            } else {
+                $domainName = strtolower($m[1]);
+                $tld        = strtolower($m[2]);
+                if($domainName === $tld){
+                    $errors[] = 'Email domain and extension cannot be identical (e.g. abc@abc.abc is not allowed)!';
+                }
+            }
+        }
     }
 
     // Phone validation
     if(empty($phone)){
         $errors[] = 'Phone number is required!';
-    } else {
-        $digitsOnly = preg_replace('/\D+/', '', $phone);
-        if(strlen($digitsOnly) < 7 || strlen($digitsOnly) > 15){
-            $errors[] = 'Phone number must contain between 7 and 15 digits!';
-        } elseif(!preg_match('/^[0-9+()\-\s]+$/', $phone)){
-            $errors[] = 'Phone number contains invalid characters!';
-        }
+    } elseif(!preg_match('/^9[0-9]{9}$/', $phone)){
+        $errors[] = 'Phone number must be exactly 10 digits and start with 9!';
+    } elseif(preg_match('/(\d)\1{4,}/', $phone)){
+        $errors[] = 'Phone number cannot contain more than 4 identical digits in a row!';
     }
 
     // Address validation
@@ -107,12 +124,17 @@ if(isset($_POST['submit'])){
             $insert_user = $conn->prepare("INSERT INTO `users`(name, email, password, phone, address) VALUES(?,?,?,?,?)");
             $insert_user->execute([$name, $email, $hashed_pass, $phone, $address]);
 
+            // Get the newly created user ID for the welcome email
+            $new_user_id = $conn->lastInsertId();
+
             // Send welcome email (non-blocking best-effort)
             $subject = 'Welcome to Nexus Bag, ' . htmlspecialchars($name) . '!';
             $body    = '<div style="font-family:Arial,sans-serif;font-size:14px;color:#333;">
                 <h2 style="color:#2c3e50;">Welcome, ' . htmlspecialchars($name) . '!</h2>
-                <p>Thanks for registering at <strong>Nexus Bag</strong>.</p>
-                <p>You can now log in and start shopping:</p>
+                <p>Thanks for joining the <strong>Nexus Bag</strong> family.</p>
+                <p>We&#39;re excited to have you with us &mdash; your next favorite bag might be just a few clicks away.</p>
+                <p>Your unique customer ID is: <strong>' . htmlspecialchars($new_user_id, ENT_QUOTES, 'UTF-8') . '</strong></p>
+                <p>You can now log in and start exploring our latest collections:</p>
                 <p><a href="' . htmlspecialchars((isset($_SERVER['HTTP_HOST']) ? 'http://' . $_SERVER['HTTP_HOST'] : '') . '/projectdone/user_login.php') . '" style="background:#27ae60;color:#fff;padding:10px 16px;text-decoration:none;border-radius:4px;display:inline-block;">Login Now</a></p>
                 <hr style="border:none;border-top:1px solid #eee;margin:20px 0;"/>
                 <p style="font-size:12px;color:#777;">If you did not create this account, please ignore this email.</p>
@@ -163,7 +185,7 @@ if(isset($_POST['submit'])){
       <input type="email" name="email" id="email" required placeholder="enter your email" maxlength="50" class="box" oninput="this.value = this.value.replace(/\s/g, '')">
       <div class="error-message" id="emailError"></div>
       
-      <input type="tel" name="phone" id="phone" required placeholder="enter your phone number" maxlength="20" class="box" oninput="this.value = this.value.replace(/[^0-9+()\-\s]/g, '')">
+      <input type="tel" name="phone" id="phone" required placeholder="enter your phone number" maxlength="10" class="box" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
       <div class="error-message" id="phoneError"></div>
       
       <input type="text" name="address" id="address" required placeholder="enter your address" maxlength="255" class="box">
@@ -182,11 +204,45 @@ if(isset($_POST['submit'])){
 
 </section>
 
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script src="js/script.js"></script>
 
+<?php
+// Prepare PHP messages for SweetAlert (if any)
+$swal_messages = isset($message) && is_array($message) ? $message : [];
+?>
 <script>
 // Client-side validation
 document.addEventListener('DOMContentLoaded', function() {
+    // SweetAlert for server-side registration messages
+    const serverMessages = <?php echo json_encode($swal_messages, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>;
+    if (Array.isArray(serverMessages) && serverMessages.length > 0 && typeof Swal !== 'undefined') {
+        const allText = serverMessages.join('\n');
+        const isSuccess = serverMessages.some(msg => msg.toLowerCase().includes('registered successfully'));
+
+        if (isSuccess) {
+            Swal.fire({
+                icon: 'success',
+                title: 'Registration Successful',
+                text: allText,
+                confirmButtonColor: '#27ae60'
+            }).then(() => {
+                // Redirect to login after user acknowledges success
+                window.location.href = 'user_login.php';
+            });
+        } else {
+            // Show errors in a list
+            const htmlList = '<ul style="text-align:left; margin:0; padding-left:1.2rem;">' +
+                serverMessages.map(m => '<li>' + String(m).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</li>').join('') +
+                '</ul>';
+            Swal.fire({
+                icon: 'error',
+                title: 'Registration Failed',
+                html: htmlList,
+                confirmButtonColor: '#e74c3c'
+            });
+        }
+    }
     const form = document.getElementById('registerForm');
     const nameInput = document.getElementById('name');
     const emailInput = document.getElementById('email');
@@ -226,42 +282,53 @@ document.addEventListener('DOMContentLoaded', function() {
     function validateEmail() {
         const email = emailInput.value.trim();
         const emailError = document.getElementById('emailError');
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        // Allow common email characters, require at least one letter before @, capture domain and TLD
+        const emailRegex = /^(?=[^@]*[A-Za-z])[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+)\.([A-Za-z]{2,10})$/;
         
         if (email === '') {
             emailError.textContent = 'Email is required!';
-            emailInput.classList.add('error');
-            return false;
-        } else if (!emailRegex.test(email)) {
-            emailError.textContent = 'Please enter a valid email address!';
             emailInput.classList.add('error');
             return false;
         } else if (email.length > 50) {
             emailError.textContent = 'Email cannot exceed 50 characters!';
             emailInput.classList.add('error');
             return false;
-        } else {
-            emailError.textContent = '';
-            emailInput.classList.remove('error');
-            return true;
         }
+
+        const match = email.match(emailRegex);
+        if (!match) {
+            emailError.textContent = 'Please enter a valid email address (for example: name@example.com)!';
+            emailInput.classList.add('error');
+            return false;
+        }
+
+        const domainName = match[1].toLowerCase();
+        const tld = match[2].toLowerCase();
+        if (domainName === tld) {
+            emailError.textContent = 'Email domain and extension cannot be identical (e.g. abc@abc.abc is not allowed)!';
+            emailInput.classList.add('error');
+            return false;
+        }
+
+        emailError.textContent = '';
+        emailInput.classList.remove('error');
+        return true;
     }
 
     function validatePhone() {
         const phone = phoneInput.value.trim();
         const phoneError = document.getElementById('phoneError');
-        const digitsOnly = phone.replace(/\D+/g, '');
         
         if (phone === '') {
             phoneError.textContent = 'Phone number is required!';
             phoneInput.classList.add('error');
             return false;
-        } else if (digitsOnly.length < 7 || digitsOnly.length > 15) {
-            phoneError.textContent = 'Phone number must contain between 7 and 15 digits!';
+        } else if (!/^9\d{9}$/.test(phone)) {
+            phoneError.textContent = 'Phone number must be exactly 10 digits and start with 9!';
             phoneInput.classList.add('error');
             return false;
-        } else if (!/^[0-9+()\-\s]+$/.test(phone)) {
-            phoneError.textContent = 'Phone number contains invalid characters!';
+        } else if (/(\d)\1{4,}/.test(phone)) {
+            phoneError.textContent = 'Phone number cannot contain more than 4 identical digits in a row!';
             phoneInput.classList.add('error');
             return false;
         } else {
