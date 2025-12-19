@@ -359,11 +359,19 @@ include 'components/wishlist_cart.php';
         $select_products->execute([$pid]);
         if($select_products->rowCount() > 0){
          while($fetch_product = $select_products->fetch(PDO::FETCH_ASSOC)){
+            // Calculate Discount
+            $original_price = $fetch_product['price'];
+            $discount = $fetch_product['discount_percentage'] ?? 0;
+            $final_price = $original_price;
+            if($discount > 0){
+               $final_price = round($original_price - ($original_price * ($discount / 100)));
+            }
+            $stock_quantity = $fetch_product['stock_quantity'];
       ?>
       <form action="" method="post" class="box">
          <input type="hidden" name="pid" value="<?= $fetch_product['id']; ?>">
          <input type="hidden" name="name" value="<?= $fetch_product['name']; ?>">
-         <input type="hidden" name="price" value="<?= $fetch_product['price']; ?>">
+         <input type="hidden" name="price" value="<?= $final_price; ?>">
          <input type="hidden" name="image" value="<?= $fetch_product['image_01']; ?>">
          
          <div class="product-badge">
@@ -385,9 +393,13 @@ include 'components/wishlist_cart.php';
                <div class="name"><?= $fetch_product['name']; ?></div>
                <div class="flex">
                   <div class="price">
-                     <span>Nrs.</span><?= number_format($fetch_product['price']); ?><span>/-</span>
+                     <?php if($discount > 0): ?>
+                        <span>Nrs.</span><?= number_format($final_price); ?><span>/-</span> <span style="text-decoration: line-through; color: #999; font-size: 0.8em;">Nrs.<?= number_format($original_price); ?></span>
+                     <?php else: ?>
+                        <span>Nrs.</span><?= number_format($original_price); ?><span>/-</span>
+                     <?php endif; ?>
                   </div>
-                  <input type="number" name="qty" class="qty" min="1" max="99" onkeypress="if(this.value.length == 2) return false;" value="1">
+                  <input type="number" name="qty" class="qty" min="1" max="<?= $stock_quantity; ?>" onkeypress="if(this.value.length == <?= strlen((string)$stock_quantity); ?>) return false;" value="1">
                </div>
                <div class="details"><?= $fetch_product['details']; ?></div>
                <div class="flex-btn">
