@@ -12,73 +12,158 @@ if(!isset($admin_id)){
 
 if(isset($_POST['update'])){
 
-   $pid = $_POST['pid'];
-   $name = $_POST['name'];
+   $errors = [];
+
+   $pid = filter_var($_POST['pid'] ?? null, FILTER_VALIDATE_INT);
+   if($pid === false || $pid <= 0){
+      $errors[] = 'Invalid product ID!';
+   }
+
+   $name = isset($_POST['name']) ? trim((string)$_POST['name']) : '';
    $name = filter_var($name, FILTER_SANITIZE_STRING);
-   $price = $_POST['price'];
-   $price = filter_var($price, FILTER_SANITIZE_STRING);
-   $details = $_POST['details'];
+   if($name === ''){
+      $errors[] = 'Product name is required!';
+   } elseif(strlen($name) > 100){
+      $errors[] = 'Product name cannot exceed 100 characters!';
+   }
+
+   $raw_price = isset($_POST['price']) ? (string)$_POST['price'] : '';
+   $price = filter_var($raw_price, FILTER_VALIDATE_FLOAT);
+   if($price === false || $price < 0){
+      $errors[] = 'Please enter a valid product price!';
+   } elseif($price > 9999999999){
+      $errors[] = 'Product price is too large!';
+   }
+
+   $details = isset($_POST['details']) ? trim((string)$_POST['details']) : '';
    $details = filter_var($details, FILTER_SANITIZE_STRING);
+   if($details === ''){
+      $errors[] = 'Product details are required!';
+   }
 
-   $update_product = $conn->prepare("UPDATE `products` SET name = ?, price = ?, details = ? WHERE id = ?");
-   $update_product->execute([$name, $price, $details, $pid]);
+   // Discount Validation
+   $discount_percentage = filter_var($_POST['discount_percentage'] ?? 0, FILTER_VALIDATE_INT);
+   if($discount_percentage === false || $discount_percentage < 0 || $discount_percentage > 100){
+      $errors[] = 'Discount percentage must be between 0 and 100!';
+   }
 
-   $message[] = 'product updated successfully!';
-
-   $old_image_01 = $_POST['old_image_01'];
-   $image_01 = $_FILES['image_01']['name'];
-   $image_01 = filter_var($image_01, FILTER_SANITIZE_STRING);
-   $image_size_01 = $_FILES['image_01']['size'];
-   $image_tmp_name_01 = $_FILES['image_01']['tmp_name'];
-   $image_folder_01 = '../uploaded_img/'.$image_01;
-
-   if(!empty($image_01)){
-      if($image_size_01 > 2000000){
-         $message[] = 'image size is too large!';
-      }else{
-         $update_image_01 = $conn->prepare("UPDATE `products` SET image_01 = ? WHERE id = ?");
-         $update_image_01->execute([$image_01, $pid]);
-         move_uploaded_file($image_tmp_name_01, $image_folder_01);
-         unlink('../uploaded_img/'.$old_image_01);
-         $message[] = 'image 01 updated successfully!';
+   if(!empty($errors)){
+      foreach($errors as $e){
+         $message[] = $e;
+      }
+   } else {
+      // Ensure product exists
+      $exists = $conn->prepare("SELECT id FROM `products` WHERE id = ? LIMIT 1");
+      $exists->execute([$pid]);
+      if($exists->rowCount() === 0){
+         $message[] = 'Product not found!';
+      } else {
+         // Prevent duplicate names (excluding this product)
+         $dup = $conn->prepare("SELECT id FROM `products` WHERE name = ? AND id <> ? LIMIT 1");
+         $dup->execute([$name, $pid]);
+         if($dup->rowCount() > 0){
+            $message[] = 'Another product with this name already exists!';
+         } else {
+            $update_product = $conn->prepare("UPDATE `products` SET name = ?, price = ?, details = ?, discount_percentage = ? WHERE id = ?");
+            $update_product->execute([$name, $price, $details, $discount_percentage, $pid]);
+            $message[] = 'Product updated successfully!';
+         }
       }
    }
 
-   $old_image_02 = $_POST['old_image_02'];
-   $image_02 = $_FILES['image_02']['name'];
-   $image_02 = filter_var($image_02, FILTER_SANITIZE_STRING);
-   $image_size_02 = $_FILES['image_02']['size'];
-   $image_tmp_name_02 = $_FILES['image_02']['tmp_name'];
-   $image_folder_02 = '../uploaded_img/'.$image_02;
+   $allowed_ext = ['jpg','jpeg','png','webp'];
+   $max_image_size = 2000000; // 2MB
 
-   if(!empty($image_02)){
-      if($image_size_02 > 2000000){
-         $message[] = 'image size is too large!';
-      }else{
-         $update_image_02 = $conn->prepare("UPDATE `products` SET image_02 = ? WHERE id = ?");
-         $update_image_02->execute([$image_02, $pid]);
-         move_uploaded_file($image_tmp_name_02, $image_folder_02);
-         unlink('../uploaded_img/'.$old_image_02);
-         $message[] = 'image 02 updated successfully!';
+   $old_image_01 = isset($_POST['old_image_01']) ? (string)$_POST['old_image_01'] : '';
+   if(isset($_FILES['image_01']) && (int)$_FILES['image_01']['error'] === UPLOAD_ERR_OK){
+      if((int)$_FILES['image_01']['size'] > $max_image_size){
+         $message[] = 'Image 01 size is too large (max 2MB)!';
+      } else {
+         $ext = strtolower(pathinfo((string)$_FILES['image_01']['name'], PATHINFO_EXTENSION));
+         if(!in_array($ext, $allowed_ext, true)){
+            $message[] = 'Image 01 must be jpg, jpeg, png, or webp!';
+         } else {
+            $new_image_01 = 'prod_' . bin2hex(random_bytes(8)) . '.' . $ext;
+            $image_folder_01 = '../uploaded_img/'.$new_image_01;
+
+            if(move_uploaded_file($_FILES['image_01']['tmp_name'], $image_folder_01)){
+               $update_image_01 = $conn->prepare("UPDATE `products` SET image_01 = ? WHERE id = ?");
+               if($update_image_01->execute([$new_image_01, $pid])){
+                  $old_path = '../uploaded_img/'.$old_image_01;
+                  if($old_image_01 && file_exists($old_path)){
+                     @unlink($old_path);
+                  }
+                  $message[] = 'Image 01 updated successfully!';
+               } else {
+                  @unlink($image_folder_01);
+                  $message[] = 'Could not update Image 01.';
+               }
+            } else {
+               $message[] = 'Failed to upload Image 01.';
+            }
+         }
       }
    }
 
-   $old_image_03 = $_POST['old_image_03'];
-   $image_03 = $_FILES['image_03']['name'];
-   $image_03 = filter_var($image_03, FILTER_SANITIZE_STRING);
-   $image_size_03 = $_FILES['image_03']['size'];
-   $image_tmp_name_03 = $_FILES['image_03']['tmp_name'];
-   $image_folder_03 = '../uploaded_img/'.$image_03;
+   $old_image_02 = isset($_POST['old_image_02']) ? (string)$_POST['old_image_02'] : '';
+   if(isset($_FILES['image_02']) && (int)$_FILES['image_02']['error'] === UPLOAD_ERR_OK){
+      if((int)$_FILES['image_02']['size'] > $max_image_size){
+         $message[] = 'Image 02 size is too large (max 2MB)!';
+      } else {
+         $ext = strtolower(pathinfo((string)$_FILES['image_02']['name'], PATHINFO_EXTENSION));
+         if(!in_array($ext, $allowed_ext, true)){
+            $message[] = 'Image 02 must be jpg, jpeg, png, or webp!';
+         } else {
+            $new_image_02 = 'prod_' . bin2hex(random_bytes(8)) . '.' . $ext;
+            $image_folder_02 = '../uploaded_img/'.$new_image_02;
 
-   if(!empty($image_03)){
-      if($image_size_03 > 2000000){
-         $message[] = 'image size is too large!';
-      }else{
-         $update_image_03 = $conn->prepare("UPDATE `products` SET image_03 = ? WHERE id = ?");
-         $update_image_03->execute([$image_03, $pid]);
-         move_uploaded_file($image_tmp_name_03, $image_folder_03);
-         unlink('../uploaded_img/'.$old_image_03);
-         $message[] = 'image 03 updated successfully!';
+            if(move_uploaded_file($_FILES['image_02']['tmp_name'], $image_folder_02)){
+               $update_image_02 = $conn->prepare("UPDATE `products` SET image_02 = ? WHERE id = ?");
+               if($update_image_02->execute([$new_image_02, $pid])){
+                  $old_path = '../uploaded_img/'.$old_image_02;
+                  if($old_image_02 && file_exists($old_path)){
+                     @unlink($old_path);
+                  }
+                  $message[] = 'Image 02 updated successfully!';
+               } else {
+                  @unlink($image_folder_02);
+                  $message[] = 'Could not update Image 02.';
+               }
+            } else {
+               $message[] = 'Failed to upload Image 02.';
+            }
+         }
+      }
+   }
+
+   $old_image_03 = isset($_POST['old_image_03']) ? (string)$_POST['old_image_03'] : '';
+   if(isset($_FILES['image_03']) && (int)$_FILES['image_03']['error'] === UPLOAD_ERR_OK){
+      if((int)$_FILES['image_03']['size'] > $max_image_size){
+         $message[] = 'Image 03 size is too large (max 2MB)!';
+      } else {
+         $ext = strtolower(pathinfo((string)$_FILES['image_03']['name'], PATHINFO_EXTENSION));
+         if(!in_array($ext, $allowed_ext, true)){
+            $message[] = 'Image 03 must be jpg, jpeg, png, or webp!';
+         } else {
+            $new_image_03 = 'prod_' . bin2hex(random_bytes(8)) . '.' . $ext;
+            $image_folder_03 = '../uploaded_img/'.$new_image_03;
+
+            if(move_uploaded_file($_FILES['image_03']['tmp_name'], $image_folder_03)){
+               $update_image_03 = $conn->prepare("UPDATE `products` SET image_03 = ? WHERE id = ?");
+               if($update_image_03->execute([$new_image_03, $pid])){
+                  $old_path = '../uploaded_img/'.$old_image_03;
+                  if($old_image_03 && file_exists($old_path)){
+                     @unlink($old_path);
+                  }
+                  $message[] = 'Image 03 updated successfully!';
+               } else {
+                  @unlink($image_folder_03);
+                  $message[] = 'Could not update Image 03.';
+               }
+            } else {
+               $message[] = 'Failed to upload Image 03.';
+            }
+         }
       }
    }
 
@@ -108,10 +193,13 @@ if(isset($_POST['update'])){
    <h1 class="heading">Update Product</h1>
 
    <?php
-      $update_id = $_GET['update'];
+      $update_id = filter_var($_GET['update'] ?? null, FILTER_VALIDATE_INT);
+      if($update_id === false || $update_id <= 0){
+         echo '<p class="empty">invalid product id!</p>';
+      } else {
       $select_products = $conn->prepare("SELECT * FROM `products` WHERE id = ?");
       $select_products->execute([$update_id]);
-      if($select_products->rowCount() > 0){
+      if($update_id !== false && $select_products->rowCount() > 0){
          while($fetch_products = $select_products->fetch(PDO::FETCH_ASSOC)){ 
    ?>
    <form action="" method="post" enctype="multipart/form-data">
@@ -133,6 +221,8 @@ if(isset($_POST['update'])){
       <input type="text" name="name" required class="box" maxlength="100" placeholder="enter product name" value="<?= $fetch_products['name']; ?>">
       <span>Update Price</span>
       <input type="number" name="price" required class="box" min="0" max="9999999999" placeholder="enter product price" onkeypress="if(this.value.length == 10) return false;" value="<?= $fetch_products['price']; ?>">
+      <span>Discount Percentage (0-100)</span>
+      <input type="number" name="discount_percentage" class="box" min="0" max="100" placeholder="enter discount percentage" value="<?= $fetch_products['discount_percentage']; ?>">
       <span>Update Details</span>
       <textarea name="details" class="box" required cols="30" rows="10"><?= $fetch_products['details']; ?></textarea>
       <span>Update image 01</span>
@@ -152,22 +242,9 @@ if(isset($_POST['update'])){
       }else{
          echo '<p class="empty">no product found!</p>';
       }
+      }
    ?>
-
 </section>
-
-
-
-
-
-
-
-
-
-
-
-
-<script src="../js/admin_script.js"></script>
-   
+<script src="../js/admin_script.js"></script> 
 </body>
 </html>
