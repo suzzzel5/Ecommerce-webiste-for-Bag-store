@@ -71,70 +71,48 @@ include 'components/wishlist_cart.php';
 
 <!-- Updated Categories Section -->
 <section class="category-section">
-      <div class="section-header">
-         <div class="collection-label">OUR COLLECTIONS</div>
-         <h1 class="section-title">Shop By Categories</h1>
-      </div>
+   <div class="section-header">
+      <div class="collection-label">OUR COLLECTIONS</div>
+      <h1 class="section-title">Shop By Categories</h1>
+   </div>
+   <div class="categories-grid">
+      <a href="category.php?category=bags" class="category-card premium-bags">
+         <div class="category-image">
+            <img src="project images/boyschoolbag.jpg" alt="Premium Bags">
+         </div>
+         <div class="category-content">
+            <h3 class="category-title">Premium Bags</h3>
+         </div>
+      </a>
       
-      <div class="categories-grid">
-         <a href="category.php?category=bags" class="category-card premium-bags">
-               <div class="love-icon">
-                  <i class="fas fa-heart"></i>
-               </div>
-               <div class="category-image">
-                  <div class="product-icon">
-                     <!-- school bag image matra !-->
-                     <img src="project images/boyschoolbag.jpg">
-                  </div>
-               </div>
-               <div class="category-content">
-                  <h3 class="category-title">Premium Bags</h3>
-               </div>
-         </a>
-
-         <a href="category.php?category=luggage" class="category-card luggage">
-               <div class="love-icon">
-                  <i class="fas fa-heart"></i>
-               </div>
-               <div class="category-image">
-                  <div class="product-icon">
-                     <img src="project images/boyluggage.jpg">
-                  </div>
-               </div>
-               <div class="category-content">
-                  <h3 class="category-title">Durable Luggage</h3>
-               </div>
-         </a>
-
-         <a href="category.php?category=caps" class="category-card caps">
-               <div class="love-icon">
-                  <i class="fas fa-heart"></i>
-               </div>
-               <div class="category-image">
-                  <div class="product-icon">
-                     <i class="fas fa-hat-cowboy"></i>
-                  </div>
-               </div>
-               <div class="category-content">
-                  <h3 class="category-title">Fashionable Caps</h3>
-               </div>
-         </a>
-
-         <a href="category.php?category=sidebag" class="category-card side-bags">
-               <div class="love-icon">
-                  <i class="fas fa-heart"></i>
-               </div>
-               <div class="category-image">
-                  <div class="product-icon">
-                     <i class="fas fa-user-tie"></i>
-                  </div>
-               </div>
-               <div class="category-content">
-                  <h3 class="category-title">Side Bags</h3>
-               </div>
-         </a>
-      </div>
-   </section>
+      <a href="category.php?category=luggage" class="category-card luggage">
+         <div class="category-image">
+            <img src="project images/girlwithluggagebag.jpg" alt="Durable Luggage">
+         </div>
+         <div class="category-content">
+            <h3 class="category-title">Durable Luggage</h3>
+         </div>
+      </a>
+      
+      <a href="category.php?category=caps" class="category-card caps">
+         <div class="category-image">
+            <img src="project images/boywithcap.jpg" alt="Fashionable Caps">
+         </div>
+         <div class="category-content">
+            <h3 class="category-title">Fashionable Caps</h3>
+         </div>
+      </a>
+      
+      <a href="category.php?category=sidebag" class="category-card side-bags">
+         <div class="category-image">
+            <img src="project images/girlwithsidebag.jpg" alt="Side Bags">
+         </div>
+         <div class="category-content">
+            <h3 class="category-title">Side Bags</h3>
+         </div>
+      </a>
+   </div>
+</section>
 
 <section class="home-products">
 
@@ -149,24 +127,39 @@ include 'components/wishlist_cart.php';
       $select_products->execute();
       if($select_products->rowCount() > 0){
       while($fetch_product = $select_products->fetch(PDO::FETCH_ASSOC)){
+         // Calculate Discount
+         $original_price = $fetch_product['price'];
+         $discount = $fetch_product['discount_percentage'] ?? 0;
+         $final_price = $original_price;
+         if($discount > 0){
+            $final_price = round($original_price - ($original_price * ($discount / 100)));
+         }
+         $stock_quantity = $fetch_product['stock_quantity'];
    ?>
    <form action="" method="post" class="swiper-slide slide">
       <input type="hidden" name="pid" value="<?= $fetch_product['id']; ?>">
       <input type="hidden" name="name" value="<?= $fetch_product['name']; ?>">
-      <input type="hidden" name="price" value="<?= $fetch_product['price']; ?>">
+      <input type="hidden" name="price" value="<?= $final_price; ?>">
       <input type="hidden" name="image" value="<?= $fetch_product['image_01']; ?>">
       <button class="fas fa-heart" type="submit" name="add_to_wishlist"></button>
       <a href="quick_view.php?pid=<?= $fetch_product['id']; ?>" class="fas fa-eye"></a>
       <img src="uploaded_img/<?= $fetch_product['image_01']; ?>" alt="">
       <div class="name"><?= $fetch_product['name']; ?></div>
       <div class="flex">
-         <div class="price"><span>Nrs.</span><?= $fetch_product['price']; ?><span>/-</span></div>
-         <input type="number" name="qty" class="qty" min="1" max="99" onkeypress="if(this.value.length == 2) return false;" value="1">
+         <div class="price">
+            <?php if($discount > 0): ?>
+               <span>Nrs.</span><?= $final_price; ?><span>/-</span> <span style="text-decoration: line-through; color: #999; font-size: 0.8em;">Nrs.<?= $original_price; ?></span>
+            <?php else: ?>
+               <span>Nrs.</span><?= $original_price; ?><span>/-</span>
+            <?php endif; ?>
+         </div>
+         <input type="number" name="qty" class="qty" min="1" max="<?= $stock_quantity; ?>" onkeypress="if(this.value.length == <?= strlen((string)$stock_quantity); ?>) return false;" value="1">
       </div>
       <input type="submit" value="add to cart" class="btn" name="add_to_cart">
    </form>
    <?php
       }
+      
    }else{
       echo '<p class="empty">no products added yet!</p>';
    }
