@@ -10,7 +10,7 @@ if(isset($_SESSION['user_id'])){
    $user_id = '';
 };
 
-include 'components/wishlist_cart.php';
+include 'components/wishlist_cart.php'; // This line was already present in the original file.
 
 // Handle sorting
 $sort = isset($_GET['sort']) ? $_GET['sort'] : 'latest';
@@ -108,11 +108,19 @@ $sort = isset($_GET['sort']) ? $_GET['sort'] : 'latest';
       while($fetch_product = $select_products->fetch(PDO::FETCH_ASSOC)){
          $is_in_stock = $fetch_product['in_stock'];
          $stock_quantity = $fetch_product['stock_quantity'] ?? 0;
+
+         // Calculate Discount
+         $original_price = $fetch_product['price'];
+         $discount = $fetch_product['discount_percentage'] ?? 0;
+         $final_price = $original_price;
+         if($discount > 0){
+            $final_price = round($original_price - ($original_price * ($discount / 100)));
+         }
    ?>
    <form action="" method="post" class="box <?= !$is_in_stock ? 'out-of-stock' : '' ?>">
       <input type="hidden" name="pid" value="<?= $fetch_product['id']; ?>">
       <input type="hidden" name="name" value="<?= $fetch_product['name']; ?>">
-      <input type="hidden" name="price" value="<?= $fetch_product['price']; ?>">
+      <input type="hidden" name="price" value="<?= $final_price; ?>">
       <input type="hidden" name="image" value="<?= $fetch_product['image_01']; ?>">
       
       <!-- Stock Status Badge -->
@@ -152,7 +160,13 @@ $sort = isset($_GET['sort']) ? $_GET['sort'] : 'latest';
       </div>
       
       <div class="flex">
-         <div class="price"><span>Nrs.</span><?= $fetch_product['price']; ?><span>/-</span></div>
+         <div class="price">
+            <?php if($discount > 0): ?>
+               <span>Nrs.</span><?= $final_price; ?><span>/-</span> <span style="text-decoration: line-through; color: #999; font-size: 0.8em;">Nrs.<?= $original_price; ?></span>
+            <?php else: ?>
+               <span>Nrs.</span><?= $original_price; ?><span>/-</span>
+            <?php endif; ?>
+         </div>
          <input type="number" name="qty" class="qty" min="1" max="<?= min(99, $stock_quantity); ?>" onkeypress="if(this.value.length == 2) return false;" value="1" <?= !$is_in_stock ? 'disabled' : '' ?>>
       </div>
       
