@@ -20,6 +20,10 @@ if(isset($_POST['add_product'])){
       $errors[] = 'Product name is required!';
    }elseif(strlen($name) > 100){
       $errors[] = 'Product name cannot exceed 100 characters!';
+   }elseif(strlen($name) < 3){
+      $errors[] = 'Product name must be at least 3 characters long!';
+   }elseif(is_numeric($name)){
+      $errors[] = 'Product name cannot be just numbers!';
    }
 
    // Auto-set category based on product name
@@ -38,7 +42,7 @@ if(isset($_POST['add_product'])){
    // Price validation (numeric)
    $raw_price = isset($_POST['price']) ? (string)$_POST['price'] : '';
    $price = filter_var($raw_price, FILTER_VALIDATE_FLOAT);
-   if($price === false || $price < 0){
+   if($price === false || $price < 0 || !is_numeric($raw_price)){
       $errors[] = 'Please enter a valid product price!';
    } elseif($price > 9999999999){
       $errors[] = 'Product price is too large!';
@@ -50,6 +54,10 @@ if(isset($_POST['add_product'])){
       $errors[] = 'Product description is required!';
    } elseif(strlen($details) > 500){
       $errors[] = 'Product description cannot exceed 500 characters!';
+   } elseif(strlen($details) < 10){
+      $errors[] = 'Product description must be at least 10 characters long!';
+   } elseif(is_numeric($details)){
+      $errors[] = 'Product description cannot be just numbers!';
    }
 
    // Stock management fields
@@ -67,6 +75,13 @@ if(isset($_POST['add_product'])){
    $sku = filter_var($sku, FILTER_SANITIZE_STRING);
    if(strlen($sku) > 50){
       $errors[] = 'SKU cannot exceed 50 characters!';
+   } elseif($sku !== ''){
+      // Check if SKU already exists
+      $check_sku = $conn->prepare("SELECT id FROM `products` WHERE sku = ?");
+      $check_sku->execute([$sku]);
+      if($check_sku->rowCount() > 0){
+         $errors[] = 'SKU already exists! Please use a unique SKU.';
+      }
    }
 
    // Determine stock status
@@ -102,6 +117,11 @@ if(isset($_POST['add_product'])){
       $ext = strtolower(pathinfo($original, PATHINFO_EXTENSION));
       if(!in_array($ext, $allowed_ext, true)){
          $errors[] = strtoupper(str_replace('_',' ', $k)) . ' must be jpg, jpeg, png, or webp!';
+         continue;
+      }
+      // Strict image content check
+      if(getimagesize($_FILES[$k]['tmp_name']) === false){
+         $errors[] = strtoupper(str_replace('_',' ', $k)) . ' is not a valid image file!';
          continue;
       }
       $new_name = 'prod_' . bin2hex(random_bytes(8)) . '.' . $ext;
@@ -198,6 +218,12 @@ if(isset($_GET['delete'])){
          @unlink($p);
       }
    }
+
+   // Delete related stock history and alerts first
+   $delete_stock_history = $conn->prepare("DELETE FROM `stock_history` WHERE product_id = ?");
+   $delete_stock_history->execute([$delete_id]);
+   $delete_stock_alerts = $conn->prepare("DELETE FROM `stock_alerts` WHERE product_id = ?");
+   $delete_stock_alerts->execute([$delete_id]);
 
    $delete_product = $conn->prepare("DELETE FROM `products` WHERE id = ?");
    $delete_product->execute([$delete_id]);
