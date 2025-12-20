@@ -374,6 +374,9 @@ include 'components/wishlist_cart.php';
          <input type="hidden" name="price" value="<?= $final_price; ?>">
          <input type="hidden" name="image" value="<?= $fetch_product['image_01']; ?>">
          
+         <?php if($discount > 0): ?>
+            <div class="discount-badge" style="position: absolute; top: 2rem; left: 2rem; background: #e74c3c; color: white; padding: 0.5rem 1rem; font-size: 1.5rem; border-radius: .5rem; z-index: 10;"><i class="fas fa-tags"></i> -<?= $discount; ?>%</div>
+         <?php endif; ?>
          <div class="product-badge">
             <i class="fas fa-star"></i> Premium Product
          </div>
