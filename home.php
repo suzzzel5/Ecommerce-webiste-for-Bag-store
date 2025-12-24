@@ -170,7 +170,35 @@ include 'components/wishlist_cart.php';
    <div class="swiper-pagination"></div>
 
    </div>
+</section>
 
+<section class="services" style="padding: 4rem 2rem; text-align: center;">
+
+   <h1 class="heading" style="margin-bottom: 3rem; text-align: center; font-size: 3rem; color: #333; text-transform: uppercase;">Our Services</h1>
+
+   <div class="box-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(25rem, 1fr)); gap: 2rem; max-width: 1200px; margin: 0 auto;">
+
+      <div class="box" style="background: #fff; padding: 3rem 2rem; text-align: center; border: 0.1rem solid rgba(0,0,0,.1); border-radius: .5rem; box-shadow: 0 .5rem 1rem rgba(0,0,0,.1);">
+         <i class="fas fa-shipping-fast" style="font-size: 4rem; color: #e74c3c; margin-bottom: 1.5rem;"></i>
+         <h3 style="font-size: 2rem; color: #333; margin-bottom: 1rem;">Fast Delivery</h3>
+         <p style="font-size: 1.5rem; color: #666; line-height: 2;">We deliver within 24 hours</p>
+      </div>
+
+      <div class="box" style="background: #fff; padding: 3rem 2rem; text-align: center; border: 0.1rem solid rgba(0,0,0,.1); border-radius: .5rem; box-shadow: 0 .5rem 1rem rgba(0,0,0,.1);">
+         <i class="fas fa-lock" style="font-size: 4rem; color: #e74c3c; margin-bottom: 1.5rem;"></i>
+         <h3 style="font-size: 2rem; color: #333; margin-bottom: 1rem;">Secure Payment</h3>
+         <p style="font-size: 1.5rem; color: #666; line-height: 2;">100% secure payment methods</p>
+      </div>
+
+      <div class="box" style="background: #fff; padding: 3rem 2rem; text-align: center; border: 0.1rem solid rgba(0,0,0,.1); border-radius: .5rem; box-shadow: 0 .5rem 1rem rgba(0,0,0,.1);">
+         <i class="fas fa-headset" style="font-size: 4rem; color: #e74c3c; margin-bottom: 1.5rem;"></i>
+         <h3 style="font-size: 2rem; color: #333; margin-bottom: 1rem;">24/7 Support</h3>
+         <p style="font-size: 1.5rem; color: #666; line-height: 2;">We are here to help you</p>
+      </div>
+
+   </div>
+
+</section>
 </section>
 
 <script src="https://unpkg.com/swiper@8/swiper-bundle.min.js"></script>
@@ -232,3 +260,4 @@ document.querySelectorAll('.love-icon').forEach(icon => {
 
 </body>
 </html>
+
