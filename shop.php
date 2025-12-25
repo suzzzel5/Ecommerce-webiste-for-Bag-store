@@ -10,7 +10,7 @@ if(isset($_SESSION['user_id'])){
    $user_id = '';
 };
 
-include 'components/wishlist_cart.php'; // This line was already present in the original file.
+include 'components/wishlist_cart.php'; 
 
 // Handle sorting
 $sort = isset($_GET['sort']) ? $_GET['sort'] : 'latest';
@@ -123,6 +123,9 @@ $sort = isset($_GET['sort']) ? $_GET['sort'] : 'latest';
       <input type="hidden" name="price" value="<?= $final_price; ?>">
       <input type="hidden" name="image" value="<?= $fetch_product['image_01']; ?>">
       
+      <?php if($discount > 0): ?>
+         <div class="discount-badge" style="position: absolute; top: 1rem; left: 1rem; background: #e74c3c; color: white; padding: 0.5rem 1rem; font-size: 1.5rem; border-radius: .5rem; z-index: 10;"><i class="fas fa-tags"></i> -<?= $discount; ?>%</div>
+      <?php endif; ?>
       <!-- Stock Status Badge -->
       <?php if(!$is_in_stock): ?>
          <div class="stock-badge out-of-stock-badge">
@@ -194,6 +197,95 @@ $sort = isset($_GET['sort']) ? $_GET['sort'] : 'latest';
 
 </section>
 
+<section class="products">
+
+   <h1 class="heading">Discounted Products</h1>
+
+   <div class="box-container">
+
+   <?php
+      $select_discounted = $conn->prepare("SELECT *, 
+             CASE 
+                WHEN stock_quantity IS NULL OR stock_quantity > 0 THEN 1 
+                ELSE 0 
+             END as in_stock
+             FROM `products` WHERE discount_percentage > 0 LIMIT 6");
+      $select_discounted->execute();
+      if($select_discounted->rowCount() > 0){
+         while($fetch_product = $select_discounted->fetch(PDO::FETCH_ASSOC)){
+            $is_in_stock = $fetch_product['in_stock'];
+            $stock_quantity = $fetch_product['stock_quantity'] ?? 0;
+
+            // Calculate Discount
+            $original_price = $fetch_product['price'];
+            $discount = $fetch_product['discount_percentage'];
+            $final_price = round($original_price - ($original_price * ($discount / 100)));
+   ?>
+   <form action="" method="post" class="box <?= !$is_in_stock ? 'out-of-stock' : '' ?>">
+      <input type="hidden" name="pid" value="<?= $fetch_product['id']; ?>">
+      <input type="hidden" name="name" value="<?= $fetch_product['name']; ?>">
+      <input type="hidden" name="price" value="<?= $final_price; ?>">
+      <input type="hidden" name="image" value="<?= $fetch_product['image_01']; ?>">
+      
+      <div class="discount-badge" style="position: absolute; top: 1rem; left: 1rem; background: #e74c3c; color: white; padding: 0.5rem 1rem; font-size: 1.5rem; border-radius: .5rem; z-index: 10;"><i class="fas fa-tags"></i> -<?= $discount; ?>%</div>
+      
+      <!-- Stock Status Badge -->
+      <?php if(!$is_in_stock): ?>
+         <div class="stock-badge out-of-stock-badge" style="top: 4.5rem;">
+            <i class="fas fa-times-circle"></i>
+            Out of Stock
+         </div>
+      <?php elseif($stock_quantity <= 5 && $stock_quantity > 0): ?>
+         <div class="stock-badge low-stock-badge" style="top: 4.5rem;">
+            <i class="fas fa-exclamation-triangle"></i>
+            Only <?= $stock_quantity; ?> left!
+         </div>
+      <?php endif; ?>
+      
+      <button class="fas fa-heart" type="submit" name="add_to_wishlist" <?= !$is_in_stock ? 'disabled' : '' ?>></button>
+      <a href="quick_view.php?pid=<?= $fetch_product['id']; ?>" class="fas fa-eye"></a>
+      <img src="uploaded_img/<?= $fetch_product['image_01']; ?>" alt="" class="<?= !$is_in_stock ? 'out-of-stock-img' : '' ?>">
+      <div class="name"><?= $fetch_product['name']; ?></div>
+      
+      <!-- Stock Information -->
+      <div class="stock-info">
+         <?php if($is_in_stock): ?>
+            <span class="in-stock">
+               <i class="fas fa-check-circle"></i>
+               In Stock
+               <?php if($stock_quantity > 0): ?>
+                  (<?= $stock_quantity; ?> available)
+               <?php endif; ?>
+            </span>
+         <?php else: ?>
+            <span class="out-of-stock-text">
+               <i class="fas fa-times-circle"></i>
+               Out of Stock
+            </span>
+         <?php endif; ?>
+      </div>
+      
+      <div class="flex">
+         <div class="price"><span>Nrs.</span><?= $final_price; ?><span>/-</span> <span style="text-decoration: line-through; color: #999; font-size: 0.8em;">Nrs.<?= $original_price; ?></span></div>
+         <input type="number" name="qty" class="qty" min="1" max="<?= min(99, $stock_quantity); ?>" onkeypress="if(this.value.length == 2) return false;" value="1" <?= !$is_in_stock ? 'disabled' : '' ?>>
+      </div>
+      
+      <?php if($is_in_stock): ?>
+         <input type="submit" value="add to cart" class="btn" name="add_to_cart">
+      <?php else: ?>
+         <button type="button" class="btn out-of-stock-btn" disabled><i class="fas fa-ban"></i> Out of Stock</button>
+         <button type="button" class="notify-btn" onclick="notifyWhenAvailable(<?= $fetch_product['id']; ?>, '<?= $fetch_product['name']; ?>')"><i class="fas fa-bell"></i> Notify When Available</button>
+      <?php endif; ?>
+   </form>
+   <?php
+         }
+      }else{
+         echo '<p class="empty">no discounted products found!</p>';
+      }
+   ?>
+   </div>
+
+</section>
 
 
 <script src="js/script.js"></script>
