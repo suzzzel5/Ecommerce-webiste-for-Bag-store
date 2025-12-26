@@ -127,7 +127,14 @@ if(isset($_POST['submit'])){
             // Get the newly created user ID for the welcome email
             $new_user_id = $conn->lastInsertId();
 
-            // Send welcome email (non-blocking best-effort)
+            // Auto-login the user after registration
+            $_SESSION['user_id'] = $new_user_id;
+            
+            // Sync guest cart and wishlist items to database
+            include 'components/sync_guest_items.php';
+            sync_guest_items_to_database($conn, $new_user_id);
+
+            // Send welcome email (best-effort)
             $subject = 'Welcome to Nexus Bag, ' . htmlspecialchars($name) . '!';
             $body    = '<div style="font-family:Arial,sans-serif;font-size:14px;color:#333;">
                 <h2 style="color:#2c3e50;">Welcome, ' . htmlspecialchars($name) . '!</h2>
@@ -227,8 +234,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 text: allText,
                 confirmButtonColor: '#27ae60'
             }).then(() => {
-                // Redirect to login after user acknowledges success
-                window.location.href = 'user_login.php';
+                // Redirect to home after user acknowledges success (user is auto-logged in)
+                window.location.href = 'home.php';
             });
         } else {
             // Show errors in a list
