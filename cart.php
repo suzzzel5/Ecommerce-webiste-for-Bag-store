@@ -8,60 +8,107 @@ if(isset($_SESSION['user_id'])){
    $user_id = $_SESSION['user_id'];
 }else{
    $user_id = '';
-   header('location:user_login.php');
+   // Allow guests to view cart, but require login for checkout
 };
 
 if(isset($_POST['delete'])){
-   $cart_id = $_POST['cart_id'];
-   $delete_cart_item = $conn->prepare("DELETE FROM `cart` WHERE id = ?");
-   $delete_cart_item->execute([$cart_id]);
+   if($user_id != ''){
+      // Logged in user - delete from database
+      $cart_id = $_POST['cart_id'];
+      $delete_cart_item = $conn->prepare("DELETE FROM `cart` WHERE id = ?");
+      $delete_cart_item->execute([$cart_id]);
+   }else{
+      // Guest user - delete from session
+      $cart_index = isset($_POST['cart_index']) ? (int)$_POST['cart_index'] : -1;
+      if($cart_index >= 0 && isset($_SESSION['guest_cart'][$cart_index])){
+         unset($_SESSION['guest_cart'][$cart_index]);
+         $_SESSION['guest_cart'] = array_values($_SESSION['guest_cart']); // Re-index array
+      }
+   }
 }
 
 if(isset($_GET['delete_all'])){
-   $delete_cart_item = $conn->prepare("DELETE FROM `cart` WHERE user_id = ?");
-   $delete_cart_item->execute([$user_id]);
+   if($user_id != ''){
+      // Logged in user - delete from database
+      $delete_cart_item = $conn->prepare("DELETE FROM `cart` WHERE user_id = ?");
+      $delete_cart_item->execute([$user_id]);
+   }else{
+      // Guest user - clear session
+      unset($_SESSION['guest_cart']);
+   }
    header('location:cart.php');
 }
 
 if(isset($_POST['update_qty'])){
-   $cart_id = $_POST['cart_id'];
-   $cart_id = filter_var($cart_id, FILTER_SANITIZE_STRING);
    $qty = $_POST['qty'];
    $qty = (int) filter_var($qty, FILTER_SANITIZE_NUMBER_INT);
    if($qty < 1){
       $qty = 1;
    }
 
-   // Limit quantity according to product stock
-   $cart_stmt = $conn->prepare("SELECT pid FROM `cart` WHERE id = ? AND user_id = ?");
-   $cart_stmt->execute([$cart_id, $user_id]);
+   if($user_id != ''){
+      // Logged in user - update in database
+      $cart_id = $_POST['cart_id'];
+      $cart_id = filter_var($cart_id, FILTER_SANITIZE_STRING);
 
-   if($cart_stmt->rowCount() > 0){
-      $cart_row = $cart_stmt->fetch(PDO::FETCH_ASSOC);
-      $pid = $cart_row['pid'];
+      // Limit quantity according to product stock
+      $cart_stmt = $conn->prepare("SELECT pid FROM `cart` WHERE id = ? AND user_id = ?");
+      $cart_stmt->execute([$cart_id, $user_id]);
 
-      $product_stmt = $conn->prepare("SELECT stock_quantity FROM `products` WHERE id = ?");
-      $product_stmt->execute([$pid]);
+      if($cart_stmt->rowCount() > 0){
+         $cart_row = $cart_stmt->fetch(PDO::FETCH_ASSOC);
+         $pid = $cart_row['pid'];
 
-      if($product_stmt->rowCount() > 0){
-         $product_row = $product_stmt->fetch(PDO::FETCH_ASSOC);
-         $available_stock = isset($product_row['stock_quantity']) ? (int)$product_row['stock_quantity'] : null;
+         $product_stmt = $conn->prepare("SELECT stock_quantity FROM `products` WHERE id = ?");
+         $product_stmt->execute([$pid]);
 
-         if($available_stock !== null && $available_stock > 0 && $qty > $available_stock){
-            $qty = $available_stock;
-            $message[] = 'only '. $available_stock .' left in stock! quantity adjusted.';
-         } elseif($available_stock !== null && $available_stock <= 0){
-            // Product is out of stock, remove it from cart
-            $delete_cart_item = $conn->prepare("DELETE FROM `cart` WHERE id = ?");
-            $delete_cart_item->execute([$cart_id]);
-            $message[] = 'product is out of stock and was removed from your cart!';
-            return;
+         if($product_stmt->rowCount() > 0){
+            $product_row = $product_stmt->fetch(PDO::FETCH_ASSOC);
+            $available_stock = isset($product_row['stock_quantity']) ? (int)$product_row['stock_quantity'] : null;
+
+            if($available_stock !== null && $available_stock > 0 && $qty > $available_stock){
+               $qty = $available_stock;
+               $message[] = 'only '. $available_stock .' left in stock! quantity adjusted.';
+            } elseif($available_stock !== null && $available_stock <= 0){
+               // Product is out of stock, remove it from cart
+               $delete_cart_item = $conn->prepare("DELETE FROM `cart` WHERE id = ?");
+               $delete_cart_item->execute([$cart_id]);
+               $message[] = 'product is out of stock and was removed from your cart!';
+               return;
+            }
          }
       }
-   }
 
-   $update_qty = $conn->prepare("UPDATE `cart` SET quantity = ? WHERE id = ?");
-   $update_qty->execute([$qty, $cart_id]);
+      $update_qty = $conn->prepare("UPDATE `cart` SET quantity = ? WHERE id = ?");
+      $update_qty->execute([$qty, $cart_id]);
+   }else{
+      // Guest user - update in session
+      $cart_index = isset($_POST['cart_index']) ? (int)$_POST['cart_index'] : -1;
+      if($cart_index >= 0 && isset($_SESSION['guest_cart'][$cart_index])){
+         $pid = $_SESSION['guest_cart'][$cart_index]['pid'];
+         
+         // Check stock
+         $product_stmt = $conn->prepare("SELECT stock_quantity FROM `products` WHERE id = ?");
+         $product_stmt->execute([$pid]);
+         
+         if($product_stmt->rowCount() > 0){
+            $product_row = $product_stmt->fetch(PDO::FETCH_ASSOC);
+            $available_stock = isset($product_row['stock_quantity']) ? (int)$product_row['stock_quantity'] : null;
+            
+            if($available_stock !== null && $available_stock > 0 && $qty > $available_stock){
+               $qty = $available_stock;
+               $message[] = 'only '. $available_stock .' left in stock! quantity adjusted.';
+            } elseif($available_stock !== null && $available_stock <= 0){
+               unset($_SESSION['guest_cart'][$cart_index]);
+               $_SESSION['guest_cart'] = array_values($_SESSION['guest_cart']);
+               $message[] = 'product is out of stock and was removed from your cart!';
+               return;
+            }
+         }
+         
+         $_SESSION['guest_cart'][$cart_index]['quantity'] = $qty;
+      }
+   }
 }
 
 // ADD TO CART FUNCTIONALITY FOR RECOMMENDED PRODUCTS
@@ -143,9 +190,13 @@ if(isset($_POST['add_to_wishlist'])){
 
    <?php
       // Count total items in cart
-      $count_cart = $conn->prepare("SELECT COUNT(*) as total_items FROM `cart` WHERE user_id = ?");
-      $count_cart->execute([$user_id]);
-      $cart_count = $count_cart->fetch(PDO::FETCH_ASSOC)['total_items'];
+      if($user_id != ''){
+         $count_cart = $conn->prepare("SELECT COUNT(*) as total_items FROM `cart` WHERE user_id = ?");
+         $count_cart->execute([$user_id]);
+         $cart_count = $count_cart->fetch(PDO::FETCH_ASSOC)['total_items'];
+      }else{
+         $cart_count = isset($_SESSION['guest_cart']) && is_array($_SESSION['guest_cart']) ? count($_SESSION['guest_cart']) : 0;
+      }
    ?>
 
    <div class="cart-info">
@@ -159,15 +210,19 @@ if(isset($_POST['add_to_wishlist'])){
 
    <?php
       $grand_total = 0;
-      // Join with products to get stock information for each cart item
-      $select_cart = $conn->prepare("SELECT c.*, p.stock_quantity FROM `cart` c LEFT JOIN `products` p ON c.pid = p.id WHERE c.user_id = ?");
-      $select_cart->execute([$user_id]);
-      if($select_cart->rowCount() > 0){
-         while($fetch_cart = $select_cart->fetch(PDO::FETCH_ASSOC)){
-            $item_stock = isset($fetch_cart['stock_quantity']) && $fetch_cart['stock_quantity'] !== null
-               ? (int)$fetch_cart['stock_quantity']
-               : 99; // fallback if stock not defined
-            $max_qty = max(1, min(99, $item_stock));
+      $has_items = false;
+      
+      if($user_id != ''){
+         // Logged in user - get from database
+         $select_cart = $conn->prepare("SELECT c.*, p.stock_quantity FROM `cart` c LEFT JOIN `products` p ON c.pid = p.id WHERE c.user_id = ?");
+         $select_cart->execute([$user_id]);
+         if($select_cart->rowCount() > 0){
+            $has_items = true;
+            while($fetch_cart = $select_cart->fetch(PDO::FETCH_ASSOC)){
+               $item_stock = isset($fetch_cart['stock_quantity']) && $fetch_cart['stock_quantity'] !== null
+                  ? (int)$fetch_cart['stock_quantity']
+                  : 99; // fallback if stock not defined
+               $max_qty = max(1, min(99, $item_stock));
    ?>
    <div class="box">
       <a href="quick_view.php?pid=<?= $fetch_cart['pid']; ?>" class="fas fa-eye"></a>
@@ -189,22 +244,79 @@ if(isset($_POST['add_to_wishlist'])){
       <!-- Delete Form -->
       <form action="" method="post" class="delete-form">
          <input type="hidden" name="cart_id" value="<?= $fetch_cart['id']; ?>">
-         <input type="submit" value="delete item" class="delete-btn cart-delete-item" name="delete">
+         <input type="hidden" name="delete" value="1">
+         <input type="submit" value="delete item" class="delete-btn cart-delete-item">
       </form>
    </div>
    <?php
    $grand_total += $sub_total;
+            }
+         }
+      }else{
+         // Guest user - get from session
+         if(isset($_SESSION['guest_cart']) && is_array($_SESSION['guest_cart']) && count($_SESSION['guest_cart']) > 0){
+            $has_items = true;
+            foreach($_SESSION['guest_cart'] as $index => $item){
+               $pid = $item['pid'] ?? '';
+               $name = $item['name'] ?? '';
+               $price = $item['price'] ?? 0;
+               $qty = $item['quantity'] ?? 1;
+               $image = $item['image'] ?? '';
+               
+               // Get stock info
+               $item_stock = 99;
+               if(!empty($pid)){
+                  $product_stmt = $conn->prepare("SELECT stock_quantity FROM `products` WHERE id = ?");
+                  $product_stmt->execute([$pid]);
+                  if($product_stmt->rowCount() > 0){
+                     $product_row = $product_stmt->fetch(PDO::FETCH_ASSOC);
+                     $item_stock = isset($product_row['stock_quantity']) && $product_row['stock_quantity'] !== null
+                        ? (int)$product_row['stock_quantity']
+                        : 99;
+                  }
+               }
+               $max_qty = max(1, min(99, $item_stock));
+   ?>
+   <div class="box">
+      <a href="quick_view.php?pid=<?= $pid; ?>" class="fas fa-eye"></a>
+      <img src="uploaded_img/<?= $image; ?>" alt="">
+      <div class="name"><?= $name; ?></div>
+      
+      <!-- Update Quantity Form -->
+      <form action="" method="post" class="update-form">
+         <input type="hidden" name="cart_index" value="<?= $index; ?>">
+         <div class="flex">
+            <div class="price">Nrs.<?= $price; ?>/-</div>
+            <input type="number" name="qty" class="qty" min="1" max="<?= $max_qty; ?>" onkeypress="if(this.value.length == 2) return false;" value="<?= min($qty, $max_qty); ?>">
+            <button type="submit" class="fas fa-edit" name="update_qty"></button>
+         </div>
+      </form>
+      
+      <div class="sub-total"> Sub Total : <span>Nrs<?= $sub_total = ($price * $qty); ?>/-</span> </div>
+      
+      <!-- Delete Form -->
+      <form action="" method="post" class="delete-form">
+         <input type="hidden" name="cart_index" value="<?= $index; ?>">
+         <input type="hidden" name="delete" value="1">
+         <input type="submit" value="delete item" class="delete-btn cart-delete-item">
+      </form>
+   </div>
+   <?php
+   $grand_total += $sub_total;
+            }
+         }
       }
-   }else{
-      echo '<div class="empty-cart">
-               <div class="empty-cart-icon">
-                  <i class="fas fa-shopping-cart"></i>
-               </div>
-               <h3>Your cart is empty</h3>
-               <p>Looks like you haven\'t added any items to your cart yet.</p>
-               <a href="shop.php" class="btn">Start Shopping</a>
-            </div>';
-   }
+      
+      if(!$has_items){
+         echo '<div class="empty-cart">
+                  <div class="empty-cart-icon">
+                     <i class="fas fa-shopping-cart"></i>
+                  </div>
+                  <h3>Your cart is empty</h3>
+                  <p>Looks like you haven\'t added any items to your cart yet.</p>
+                  <a href="shop.php" class="btn">Start Shopping</a>
+               </div>';
+      }
    ?>
    </div>
 
@@ -233,10 +345,17 @@ if(isset($_POST['add_to_wishlist'])){
             <i class="fas fa-trash"></i>
             Clear Cart
          </a>
-         <a href="checkout.php" class="btn">
-            <i class="fas fa-credit-card"></i>
-            Proceed to Checkout
-         </a>
+         <?php if($user_id != ''): ?>
+            <a href="checkout.php" class="btn">
+               <i class="fas fa-credit-card"></i>
+               Proceed to Checkout
+            </a>
+         <?php else: ?>
+            <a href="user_login.php" class="btn">
+               <i class="fas fa-sign-in-alt"></i>
+               Login to Checkout
+            </a>
+         <?php endif; ?>
       </div>
    </div>
    <?php endif; ?>
@@ -305,22 +424,45 @@ document.addEventListener('DOMContentLoaded', function () {
 
    <?php
       // Step 1: Get all cart items of current user
-      $get_cart_items = $conn->prepare("SELECT pid FROM cart WHERE user_id = ?");
-      $get_cart_items->execute([$user_id]);
-
       $cart_product_ids = [];
       $cart_categories = [];
+      
+      if($user_id != ''){
+         // Logged in user - get from database
+         $get_cart_items = $conn->prepare("SELECT pid FROM cart WHERE user_id = ?");
+         $get_cart_items->execute([$user_id]);
 
-      while($cart_row = $get_cart_items->fetch(PDO::FETCH_ASSOC)){
-         $cart_product_ids[] = $cart_row['pid'];
+         while($cart_row = $get_cart_items->fetch(PDO::FETCH_ASSOC)){
+            $cart_product_ids[] = $cart_row['pid'];
 
-         // Get category for each product
-         $get_cat = $conn->prepare("SELECT category FROM products WHERE id = ?");
-         $get_cat->execute([$cart_row['pid']]);
-         if($get_cat->rowCount() > 0){
-            $cat = $get_cat->fetch(PDO::FETCH_ASSOC)['category'];
-            if(!in_array($cat, $cart_categories)){
-               $cart_categories[] = $cat;
+            // Get category for each product
+            $get_cat = $conn->prepare("SELECT category FROM products WHERE id = ?");
+            $get_cat->execute([$cart_row['pid']]);
+            if($get_cat->rowCount() > 0){
+               $cat = $get_cat->fetch(PDO::FETCH_ASSOC)['category'];
+               if(!in_array($cat, $cart_categories)){
+                  $cart_categories[] = $cat;
+               }
+            }
+         }
+      }else{
+         // Guest user - get from session
+         if(isset($_SESSION['guest_cart']) && is_array($_SESSION['guest_cart'])){
+            foreach($_SESSION['guest_cart'] as $item){
+               $pid = $item['pid'] ?? '';
+               if(!empty($pid)){
+                  $cart_product_ids[] = $pid;
+                  
+                  // Get category for each product
+                  $get_cat = $conn->prepare("SELECT category FROM products WHERE id = ?");
+                  $get_cat->execute([$pid]);
+                  if($get_cat->rowCount() > 0){
+                     $cat = $get_cat->fetch(PDO::FETCH_ASSOC)['category'];
+                     if(!in_array($cat, $cart_categories)){
+                        $cart_categories[] = $cat;
+                     }
+                  }
+               }
             }
          }
       }
