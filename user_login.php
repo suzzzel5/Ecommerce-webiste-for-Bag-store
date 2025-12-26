@@ -28,6 +28,10 @@ if(isset($_POST['submit'])){
       $update_login = $conn->prepare("UPDATE `users` SET last_login = NOW() WHERE id = ?");
       $update_login->execute([$row['id']]);
       
+      // Sync guest cart and wishlist items to database
+      include 'components/sync_guest_items.php';
+      sync_guest_items_to_database($conn, $row['id']);
+      
       header('location:home.php');
    }else{
       $message[] = 'incorrect username or password!';
