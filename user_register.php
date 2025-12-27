@@ -1,164 +1,316 @@
 <?php
 
 include 'components/connect.php';
-include 'components/mailer.php';
 
 session_start();
 
 if(isset($_SESSION['user_id'])){
-    $user_id = $_SESSION['user_id'];
+   $user_id = $_SESSION['user_id'];
 }else{
    $user_id = '';
-};
+   header('location:user_login.php');
+   exit();
+}
 
-if(isset($_POST['submit'])){
+// CSRF Protection
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+   if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+      $message[] = 'Invalid request!';
+   }
+}
 
-    $name = $_POST['name'];
-    $name = filter_var($name, FILTER_SANITIZE_STRING);
-    $name = trim($name);
-    $email = $_POST['email'];
-    $email = filter_var($email, FILTER_SANITIZE_STRING);
-    $email = trim($email);
-    $phone = isset($_POST['phone']) ? $_POST['phone'] : '';
-    $phone = filter_var($phone, FILTER_SANITIZE_STRING);
-    $phone = trim($phone);
-    $address = isset($_POST['address']) ? $_POST['address'] : '';
-    $address = filter_var($address, FILTER_SANITIZE_STRING);
-    $address = trim($address);
-    $pass = $_POST['pass'];
-    $cpass = $_POST['cpass'];
+// Generate CSRF token if not exists
+if (!isset($_SESSION['csrf_token'])) {
+   $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
 
-   // Server-side validation
-    $errors = [];
+// Prefill user details from profile for the checkout form
+$prefill = [
+   'name' => '',
+   'email' => '',
+   'number' => '',
+   'flat' => '',
+   'street' => '',
+   'city' => '',
+   'state' => '',
+   'country' => '',
+   'pin_code' => ''
+];
 
-   // Name validation
-    if(empty($name)){
-        $errors[] = 'Name is required!';
-    } elseif(strlen($name) < 3){
-        $errors[] = 'Name must be at least 3 characters long!';
-    } elseif(strlen($name) > 20){
-        $errors[] = 'Name cannot exceed 20 characters!';
-    } elseif(!preg_match("/^[a-zA-Z\s]+$/", $name)){
-        $errors[] = 'Name can only contain letters and spaces!';
-    }
+// Always prefill name and email
+$select_basic_profile = $conn->prepare("SELECT name, email FROM `users` WHERE id = ?");
+if ($select_basic_profile && $select_basic_profile->execute([$user_id])) {
+   if ($select_basic_profile->rowCount() > 0) {
+      $basic_profile = $select_basic_profile->fetch(PDO::FETCH_ASSOC);
+      $prefill['name'] = $basic_profile['name'] ?? '';
+      $prefill['email'] = $basic_profile['email'] ?? '';
+   }
+}
 
-    // Email validation
-    if(empty($email)){
-        $errors[] = 'Email is required!';
-    } elseif(!filter_var($email, FILTER_VALIDATE_EMAIL)){
-        $errors[] = 'Please enter a valid email address!';
-    } else {
-        $atPos = strpos($email, '@');
-        $localPart = substr($email, 0, $atPos);
-        $domainPart = substr($email, $atPos + 1);
+// Try to also prefill phone and address if available
+try {
+   $select_extended_profile = $conn->prepare("SELECT phone, address FROM `users` WHERE id = ?");
+   if ($select_extended_profile && $select_extended_profile->execute([$user_id])) {
+      if ($select_extended_profile->rowCount() > 0) {
+         $extended_profile = $select_extended_profile->fetch(PDO::FETCH_ASSOC);
+         $prefill['number'] = preg_replace('/\\D+/', '', $extended_profile['phone'] ?? '');
+         if (strlen($prefill['number']) > 10) { $prefill['number'] = substr($prefill['number'], 0, 10); }
 
-        // local part (before @) must contain at least one letter, so emails like 123@gmail.com are invalid
-        if(!preg_match('/[A-Za-z]/', $localPart)){
-            $errors[] = 'Email username must contain at least one letter!';
-        } elseif(strlen($email) > 50){
-            $errors[] = 'Email cannot exceed 50 characters!';
-        } else {
-            // Enforce a more realistic domain pattern and block abc@abc.abc style emails
-            if(!preg_match('/^[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+)\.([A-Za-z]{2,10})$/', $email, $m)){
-                $errors[] = 'Please enter a valid email address (for example: name@example.com)!';
-            } else {
-                $domainName = strtolower($m[1]);
-                $tld        = strtolower($m[2]);
-                if($domainName === $tld){
-                    $errors[] = 'Email domain and extension cannot be identical (e.g. abc@abc.abc is not allowed)!';
-                }
+         $saved_address = trim($extended_profile['address'] ?? '');
+         if ($saved_address !== '') {
+            $parts = array_map('trim', explode(',', $saved_address));
+            if (!empty($parts[0])) { $prefill['flat'] = $parts[0]; }
+            if (!empty($parts[1])) { $prefill['street'] = $parts[1]; }
+            if (!empty($parts[2])) { $prefill['city'] = $parts[2]; }
+            if (!empty($parts[3])) { $prefill['state'] = $parts[3]; }
+            if (!empty($parts[4])) {
+               if (preg_match('/^(.*)\s*-\s*(\\d{5,6})$/', $parts[4], $m)) {
+                  $prefill['country'] = trim($m[1]);
+                  $prefill['pin_code'] = $m[2];
+               } else {
+                  $prefill['country'] = $parts[4];
+               }
             }
-        }
-    }
+         }
+      }
+   }
+} catch (Exception $e) {
+   // Ignore prefill errors in rendering
+}
 
-    // Phone validation
-    if(empty($phone)){
-        $errors[] = 'Phone number is required!';
-    } elseif(!preg_match('/^9[0-9]{9}$/', $phone)){
-        $errors[] = 'Phone number must be exactly 10 digits and start with 9!';
-    } elseif(preg_match('/(\d)\1{4,}/', $phone)){
-        $errors[] = 'Phone number cannot contain more than 4 identical digits in a row!';
-    }
+if(isset($_POST['order'])){
 
-    // Address validation
-    if(empty($address)){
-        $errors[] = 'Address is required!';
-    } elseif(strlen($address) < 5){
-        $errors[] = 'Address must be at least 5 characters long!';
-    } elseif(strlen($address) > 255){
-        $errors[] = 'Address cannot exceed 255 characters!';
-    }
+   $errors = [];
+   $success = false;
 
-    // Password validation
-    if(empty($pass)){
-        $errors[] = 'Password is required!';
-    } elseif(strlen($pass) < 6){
-        $errors[] = 'Password must be at least 6 characters long!';
-    } elseif(strlen($pass) > 20){
-        $errors[] = 'Password cannot exceed 20 characters!';
-    } elseif(!preg_match("/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/", $pass)){
-        $errors[] = 'Password must contain at least one uppercase letter, one lowercase letter, and one number!';
-    }
+   // Validate and sanitize name
+   $name = trim($_POST['name'] ?? '');
+   if (empty($name)) {
+      $errors[] = 'Name is required';
+   } elseif (strlen($name) < 2 || strlen($name) > 50) {
+      $errors[] = 'Name must be between 2 and 50 characters';
+   } elseif (!preg_match("/^[a-zA-Z\s]+$/", $name)) {
+      $errors[] = 'Name can only contain letters and spaces';
+   }
 
-    // Confirm password validation
-    if(empty($cpass)){
-        $errors[] = 'Please confirm your password!';
-    } elseif($pass !== $cpass){
-        $errors[] = 'Passwords do not match!';
-    }
+   // Validate and sanitize phone number
+   $number = trim($_POST['number'] ?? '');
+   if (empty($number)) {
+      $errors[] = 'Phone number is required';
+   } elseif (!preg_match("/^[0-9]{10}$/", $number)) {
+      $errors[] = 'Phone number must be exactly 10 digits';
+   }
 
-    // If no validation errors, proceed with registration
-    if(empty($errors)){
-        // Check if email already exists
-        $select_user = $conn->prepare("SELECT * FROM `users` WHERE email = ?");
-        $select_user->execute([$email]);
-        $row = $select_user->fetch(PDO::FETCH_ASSOC);
+   // Validate and sanitize email
+   $email = trim($_POST['email'] ?? '');
+   if (empty($email)) {
+      $errors[] = 'Email is required';
+   } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+      $errors[] = 'Please enter a valid email address';
+   } elseif (strlen($email) > 100) {
+      $errors[] = 'Email is too long';
+   }
 
-        if($select_user->rowCount() > 0){
-            $message[] = 'Email already exists!';
-        } else {
-            // Hash password
-            $hashed_pass = sha1($pass);
+   // Validate payment method
+   $method = trim($_POST['method'] ?? '');
+   $allowed_methods = ['cash on delivery', 'paytm', 'khalti'];
+   if (empty($method)) {
+      $errors[] = 'Payment method is required';
+   } elseif (!in_array($method, $allowed_methods)) {
+      $errors[] = 'Invalid payment method selected';
+   }
+
+   // Validate address fields
+   $flat = trim($_POST['flat'] ?? '');
+   $street = trim($_POST['street'] ?? '');
+   $city = trim($_POST['city'] ?? '');
+   $state = trim($_POST['state'] ?? '');
+   $country = trim($_POST['country'] ?? '');
+   $pin_code = trim($_POST['pin_code'] ?? '');
+
+   if (empty($flat)) {
+      $errors[] = 'Flat/Address line 1 is required';
+   } elseif (strlen($flat) > 50) {
+      $errors[] = 'Flat/Address line 1 is too long';
+   }
+
+   if (empty($street)) {
+      $errors[] = 'Street name is required';
+   } elseif (strlen($street) > 50) {
+      $errors[] = 'Street name is too long';
+   }
+
+   if (empty($city)) {
+      $errors[] = 'City is required';
+   } elseif (strlen($city) > 50) {
+      $errors[] = 'City name is too long';
+   }
+
+   if (empty($state)) {
+      $errors[] = 'Province is required';
+   } elseif (strlen($state) > 50) {
+      $errors[] = 'Province name is too long';
+   }
+
+   if (empty($country)) {
+      $errors[] = 'Country is required';
+   } elseif (strlen($country) > 50) {
+      $errors[] = 'Country name is too long';
+   }
+
+   if (empty($pin_code)) {
+      $errors[] = 'ZIP code is required';
+   } elseif (!preg_match("/^[0-9]{5,6}$/", $pin_code)) {
+      $errors[] = 'ZIP code must be 5-6 digits';
+   }
+
+   // Validate total products and price
+   $total_products = $_POST['total_products'] ?? '';
+   $total_price = $_POST['total_price'] ?? '';
+
+   if (empty($total_products)) {
+      $errors[] = 'Cart is empty';
+   }
+
+   if (empty($total_price) || !is_numeric($total_price) || $total_price <= 0) {
+      $errors[] = 'Invalid total price';
+   }
+
+   // Build address string
+   $address = 'Flat no. ' . htmlspecialchars($flat) . ', ' . 
+              htmlspecialchars($street) . ', ' . 
+              htmlspecialchars($city) . ', ' . 
+              htmlspecialchars($state) . ', ' . 
+              htmlspecialchars($country) . ' - ' . 
+              htmlspecialchars($pin_code);
+
+   // Verify cart integrity and stock availability
+   $check_cart = $conn->prepare("SELECT c.*, p.stock_quantity, p.stock_status FROM `cart` c JOIN `products` p ON c.pid = p.id WHERE c.user_id = ?");
+   $check_cart->execute([$user_id]);
+
+   if($check_cart->rowCount() == 0){
+      $errors[] = 'Your cart is empty';
+   } else {
+      // Verify cart total matches submitted total and check stock
+      $cart_total = 0;
+      $cart_items = [];
+      $insufficient_stock_items = [];
+      
+      while($fetch_cart = $check_cart->fetch(PDO::FETCH_ASSOC)){
+         $cart_items[] = $fetch_cart['name'].' ('.$fetch_cart['price'].' x '. $fetch_cart['quantity'].') - ';
+         $cart_total += ($fetch_cart['price'] * $fetch_cart['quantity']);
+         
+         // Check stock availability
+         if($fetch_cart['quantity'] > $fetch_cart['stock_quantity']) {
+            $insufficient_stock_items[] = $fetch_cart['name'] . ' (Available: ' . $fetch_cart['stock_quantity'] . ', Requested: ' . $fetch_cart['quantity'] . ')';
+         }
+      }
+      
+      if(abs($cart_total - $total_price) > 0.01) { // Allow for small floating point differences
+         $errors[] = 'Cart total mismatch detected';
+      }
+      
+      if(!empty($insufficient_stock_items)) {
+         $errors[] = 'Insufficient stock for: ' . implode(', ', $insufficient_stock_items);
+      }
+   }
+
+   // If no errors, proceed with order placement
+   if (empty($errors)) {
+      // Handle Khalti payment
+      if ($method === 'khalti') {
+         // Store order data in session for Khalti payment
+         $_SESSION['khalti_order'] = [
+            'user_id' => $user_id,
+            'name' => $name,
+            'number' => $number,
+            'email' => $email,
+            'address' => $address,
+            'total_products' => $total_products,
+            'total_price' => $total_price,
+            'cart_items' => $cart_items
+         ];
+         
+         // Redirect to Khalti payment
+         header('Location: khalti/process-khalti-payment.php');
+         exit();
+      }
+      
+      // Handle cash on delivery
+      try {
+            // Begin transaction
+            $conn->beginTransaction();
+
+            $insert_order = $conn->prepare("INSERT INTO `orders`(user_id, name, number, email, method, address, total_products, total_price, placed_on) VALUES(?,?,?,?,?,?,?,?,NOW())");
+            $insert_order->execute([$user_id, $name, $number, $email, $method, $address, $total_products, $total_price]);
+
+            // Update stock levels and log stock history
+            $update_cart = $conn->prepare("SELECT c.*, p.stock_quantity, p.min_stock_level FROM `cart` c JOIN `products` p ON c.pid = p.id WHERE c.user_id = ?");
+            $update_cart->execute([$user_id]);
             
-            // Insert user
-            $insert_user = $conn->prepare("INSERT INTO `users`(name, email, password, phone, address) VALUES(?,?,?,?,?)");
-            $insert_user->execute([$name, $email, $hashed_pass, $phone, $address]);
-
-            // Get the newly created user ID for the welcome email
-            $new_user_id = $conn->lastInsertId();
-
-            // Auto-login the user after registration
-            $_SESSION['user_id'] = $new_user_id;
-            
-            // Sync guest cart and wishlist items to database
-            include 'components/sync_guest_items.php';
-            sync_guest_items_to_database($conn, $new_user_id);
-
-            // Send welcome email (best-effort)
-            $subject = 'Welcome to Nexus Bag, ' . htmlspecialchars($name) . '!';
-            $body    = '<div style="font-family:Arial,sans-serif;font-size:14px;color:#333;">
-                <h2 style="color:#2c3e50;">Welcome, ' . htmlspecialchars($name) . '!</h2>
-                <p>Thanks for joining the <strong>Nexus Bag</strong> family.</p>
-                <p>We&#39;re excited to have you with us &mdash; your next favorite bag might be just a few clicks away.</p>
-                <p>Your unique customer ID is: <strong>' . htmlspecialchars($new_user_id, ENT_QUOTES, 'UTF-8') . '</strong></p>
-                <p>You can now log in and start exploring our latest collections:</p>
-                <p><a href="' . htmlspecialchars((isset($_SERVER['HTTP_HOST']) ? 'http://' . $_SERVER['HTTP_HOST'] : '') . '/projectdone/user_login.php') . '" style="background:#27ae60;color:#fff;padding:10px 16px;text-decoration:none;border-radius:4px;display:inline-block;">Login Now</a></p>
-                <hr style="border:none;border-top:1px solid #eee;margin:20px 0;"/>
-                <p style="font-size:12px;color:#777;">If you did not create this account, please ignore this email.</p>
-            </div>';
-            $sent = send_mail($email, $subject, $body);
-            if ($sent) {
-                $message[] = 'Registered successfully. A welcome email was sent to ' . htmlspecialchars($email) . '.';
-            } else {
-                $message[] = 'Registered successfully, but we could not send the welcome email.';
+            while($cart_item = $update_cart->fetch(PDO::FETCH_ASSOC)) {
+               $new_stock = $cart_item['stock_quantity'] - $cart_item['quantity'];
+               
+               // Update stock status
+               $stock_status = 'out_of_stock';
+               if($new_stock > $cart_item['min_stock_level']) {
+                  $stock_status = 'in_stock';
+               } elseif($new_stock > 0) {
+                  $stock_status = 'low_stock';
+               }
+               
+               // Update product stock
+               $update_product_stock = $conn->prepare("UPDATE `products` SET stock_quantity = ?, stock_status = ? WHERE id = ?");
+               $update_product_stock->execute([$new_stock, $stock_status, $cart_item['pid']]);
+               
+               // Log stock history for sale
+               $insert_stock_history = $conn->prepare("INSERT INTO `stock_history`(product_id, action_type, quantity_change, previous_stock, new_stock, notes, admin_id) VALUES(?,?,?,?,?,?,?)");
+               $insert_stock_history->execute([$cart_item['pid'], 'sale', -$cart_item['quantity'], $cart_item['stock_quantity'], $new_stock, 'Order placed by user', null]);
+               
+               // Create stock alerts if needed
+               if($new_stock <= $cart_item['min_stock_level'] && $new_stock > 0) {
+                  $check_alert = $conn->prepare("SELECT id FROM `stock_alerts` WHERE product_id = ? AND alert_type = 'low_stock' AND is_read = 0");
+                  $check_alert->execute([$cart_item['pid']]);
+                  if($check_alert->rowCount() == 0) {
+                     $insert_alert = $conn->prepare("INSERT INTO `stock_alerts`(product_id, alert_type, message) VALUES(?,?,?)");
+                     $insert_alert->execute([$cart_item['pid'], 'low_stock', 'Product is running low on stock. Current stock: ' . $new_stock]);
+                  }
+               } elseif($new_stock == 0) {
+                  $check_alert = $conn->prepare("SELECT id FROM `stock_alerts` WHERE product_id = ? AND alert_type = 'out_of_stock' AND is_read = 0");
+                  $check_alert->execute([$cart_item['pid']]);
+                  if($check_alert->rowCount() == 0) {
+                     $insert_alert = $conn->prepare("INSERT INTO `stock_alerts`(product_id, alert_type, message) VALUES(?,?,?)");
+                     $insert_alert->execute([$cart_item['pid'], 'out_of_stock', 'Product is out of stock!']);
+                  }
+               }
             }
-        }
-    } else {
-        // Display validation errors
-        foreach($errors as $error){
-            $message[] = $error;
-        }
-    }
+
+            $delete_cart = $conn->prepare("DELETE FROM `cart` WHERE user_id = ?");
+            $delete_cart->execute([$user_id]);
+
+            // Commit transaction
+            $conn->commit();
+
+            $message[] = 'Order placed successfully!';
+            $success = true;
+
+            // Clear cart items from session if any
+            if (isset($_SESSION['cart_count'])) {
+               unset($_SESSION['cart_count']);
+            }
+
+         } catch (Exception $e) {
+            // Rollback transaction on error
+            $conn->rollback();
+            $message[] = 'An error occurred while placing your order. Please try again.';
+            error_log("Order placement error: " . $e->getMessage());
+         }
+   } else {
+      // Display validation errors
+      foreach ($errors as $error) {
+         $message[] = $error;
+      }
+   }
 }
 
 ?>
@@ -169,7 +321,7 @@ if(isset($_POST['submit'])){
    <meta charset="UTF-8">
    <meta http-equiv="X-UA-Compatible" content="IE=edge">
    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-   <title>Register</title>
+   <title>checkout</title>
    
    <!-- font awesome cdn link  -->
    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
@@ -182,366 +334,153 @@ if(isset($_POST['submit'])){
    
 <?php include 'components/user_header.php'; ?>
 
-<section class="form-container">
+<section class="checkout-orders">
 
-   <form action="" method="post" id="registerForm" novalidate>
-      <h3>Register Now.</h3>
-      <input type="text" name="name" id="name" required placeholder="enter your username" maxlength="20" class="box">
-      <div class="error-message" id="nameError"></div>
-      
-      <input type="email" name="email" id="email" required placeholder="enter your email" maxlength="50" class="box" oninput="this.value = this.value.replace(/\s/g, '')">
-      <div class="error-message" id="emailError"></div>
-      
-      <input type="tel" name="phone" id="phone" required placeholder="enter your phone number" maxlength="10" class="box" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
-      <div class="error-message" id="phoneError"></div>
-      
-      <input type="text" name="address" id="address" required placeholder="enter your address" maxlength="255" class="box">
-      <div class="error-message" id="addressError"></div>
-      
-      <input type="password" name="pass" id="pass" required placeholder="enter your password" maxlength="20" class="box" oninput="this.value = this.value.replace(/\s/g, '')">
-      <div class="error-message" id="passError"></div>
-      
-      <input type="password" name="cpass" id="cpass" required placeholder="confirm your password" maxlength="20" class="box" oninput="this.value = this.value.replace(/\s/g, '')">
-      <div class="error-message" id="cpassError"></div>
-      
-      <input type="submit" value="register now" class="btn" name="submit">
-      <p>Already have an account?</p>
-      <a href="user_login.php" class="option-btn">Login Now.</a>
+   <?php
+   if(isset($_SESSION['error'])){
+      echo '<div class="message"><span>'.$_SESSION['error'].'</span><i class="fas fa-times" onclick="this.parentElement.remove();"></i></div>';
+      unset($_SESSION['error']);
+   }
+   if(isset($_SESSION['success'])){
+      echo '<div class="message"><span>'.$_SESSION['success'].'</span><i class="fas fa-times" onclick="this.parentElement.remove();"></i></div>';
+      unset($_SESSION['success']);
+   }
+   ?>
+
+   <form action="" method="POST">
+
+   <h3>Your Orders</h3>
+
+      <div class="display-orders">
+      <?php
+         $grand_total = 0;
+         $cart_items = [];
+         $select_cart = $conn->prepare("SELECT * FROM `cart` WHERE user_id = ?");
+         $select_cart->execute([$user_id]);
+         if($select_cart->rowCount() > 0){
+            while($fetch_cart = $select_cart->fetch(PDO::FETCH_ASSOC)){
+               $cart_items[] = $fetch_cart['name'].' ('.$fetch_cart['price'].' x '. $fetch_cart['quantity'].') - ';
+               $total_products = implode($cart_items);
+               $grand_total += ($fetch_cart['price'] * $fetch_cart['quantity']);
+      ?>
+         <p> <?= htmlspecialchars($fetch_cart['name']); ?> <span>(<?= 'Rs'.htmlspecialchars($fetch_cart['price']).'/- x '. htmlspecialchars($fetch_cart['quantity']); ?>)</span> </p>
+      <?php
+            }
+         }else{
+            echo '<p class="empty">your cart is empty!</p>';
+         }
+      ?>
+         <input type="hidden" name="total_products" value="<?= htmlspecialchars($total_products ?? ''); ?>">
+         <input type="hidden" name="total_price" value="<?= htmlspecialchars($grand_total); ?>">
+         <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token']; ?>">
+         <div class="grand-total">Grand Total : <span>Nrs.<?= htmlspecialchars($grand_total); ?>/-</span></div>
+      </div>
+
+      <h3>place your orders</h3>
+
+      <div class="flex">
+         <div class="inputBox">
+            <span>Your Name :</span>
+            <input type="text" name="name" placeholder="enter your name" class="box" maxlength="50" value="<?= htmlspecialchars($_POST['name'] ?? ($prefill['name'] ?? '')); ?>" required>
+         </div>
+         <div class="inputBox">
+            <span>Your Number :</span>
+            <input type="tel" name="number" placeholder="enter your number" class="box" pattern="[0-9]{10}" maxlength="10" value="<?= htmlspecialchars($_POST['number'] ?? ($prefill['number'] ?? '')); ?>" required>
+         </div>
+         <div class="inputBox">
+            <span>Your Email :</span>
+            <input type="email" name="email" placeholder="enter your email" class="box" maxlength="100" value="<?= htmlspecialchars($_POST['email'] ?? ($prefill['email'] ?? '')); ?>" required>
+         </div>
+         <div class="inputBox">
+            <span>Payment method :</span>
+            <select name="method" class="box" required>
+               <option value="">Select payment method</option>
+               <option value="cash on delivery" <?= (isset($_POST['method']) && $_POST['method'] == 'cash on delivery') ? 'selected' : ''; ?>>Cash On Delivery</option>
+               <option value="khalti" <?= (isset($_POST['method']) && $_POST['method'] == 'khalti') ? 'selected' : ''; ?>>Khalti Digital Wallet</option>
+            </select>
+         </div>
+         <div class="inputBox">
+            <span>Address line 01 :</span>
+            <input type="text" name="flat" placeholder="e.g. Flat number" class="box" maxlength="50" value="<?= htmlspecialchars($_POST['flat'] ?? ($prefill['flat'] ?? '')); ?>" required>
+         </div>
+         <div class="inputBox">
+            <span>Address line 02 :</span>
+            <input type="text" name="street" placeholder="Street name" class="box" maxlength="50" value="<?= htmlspecialchars($_POST['street'] ?? ($prefill['street'] ?? '')); ?>" required>
+         </div>
+         <div class="inputBox">
+            <span>City :</span>
+            <select name="city" id="city" class="box" required>
+               <option value="">Select City</option>
+            </select>
+         </div>
+         <div class="inputBox">
+            <span>Province:</span>
+            <?php $selected_state = $_POST['state'] ?? ($prefill['state'] ?? ''); ?>
+            <select name="state" id="state" class="box" onchange="updateCities()" required>
+               <option value="">Select Province</option>
+               <option value="Koshi" <?= $selected_state == 'Koshi' ? 'selected' : ''; ?>>Koshi Province</option>
+               <option value="Madhesh" <?= $selected_state == 'Madhesh' ? 'selected' : ''; ?>>Madhesh Province</option>
+               <option value="Bagmati" <?= $selected_state == 'Bagmati' ? 'selected' : ''; ?>>Bagmati Province</option>
+               <option value="Gandaki" <?= $selected_state == 'Gandaki' ? 'selected' : ''; ?>>Gandaki Province</option>
+               <option value="Lumbini" <?= $selected_state == 'Lumbini' ? 'selected' : ''; ?>>Lumbini Province</option>
+               <option value="Karnali" <?= $selected_state == 'Karnali' ? 'selected' : ''; ?>>Karnali Province</option>
+               <option value="Sudurpashchim" <?= $selected_state == 'Sudurpashchim' ? 'selected' : ''; ?>>Sudurpashchim Province</option>
+            </select>
+         </div>
+         <div class="inputBox">
+            <span>Country :</span>
+            <input type="text" name="country" placeholder="Nepal" class="box" maxlength="50" value="<?= htmlspecialchars($_POST['country'] ?? ($prefill['country'] ?? '')); ?>" required>
+         </div>
+         <div class="inputBox">
+            <span>ZIP CODE :</span>
+            <input type="text" name="pin_code" placeholder="e.g. 56400" pattern="[0-9]{5,6}" maxlength="6" value="<?= htmlspecialchars($_POST['pin_code'] ?? ($prefill['pin_code'] ?? '')); ?>" class="box" required>
+         </div>
+      </div>
+
+      <input type="submit" name="order" class="btn <?= ($grand_total > 1)?'':'disabled'; ?>" value="place order">
+
    </form>
 
 </section>
 
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script src="js/script.js"></script>
 
-<?php
-// Prepare PHP messages for SweetAlert (if any)
-$swal_messages = isset($message) && is_array($message) ? $message : [];
-?>
 <script>
-// Client-side validation
+function updateCities() {
+   var cities = {
+      Koshi:["Biratnagar","Dharan","Itahari","Bhadrapur"],
+      Madhesh:["Janakpur","Birgunj","Kalaiya","Lahan"],
+      Bagmati:["Kathmandu","Lalitpur","Bhaktapur","Bharatpur","Hetauda"],
+      Gandaki:["Pokhara","Baglung","Gorkha","Besisahar"],
+      Lumbini:["Butwal","Bhairahawa","Nepalgunj","Tulsipur"],
+      Karnali:["Birendranagar","Jumla","Dailekh"],
+      Sudurpashchim:["Dhangadhi","Tikapur","Mahendranagar"]
+   };
+   var state = document.getElementById("state").value;
+   var citySelect = document.getElementById("city");
+   citySelect.innerHTML = '<option value="">Select City</option>';
+   if(cities[state]){
+      cities[state].forEach(function(city){
+         var opt = document.createElement("option");
+         opt.value = city;
+         opt.textContent = city;
+         citySelect.appendChild(opt);
+      });
+   }
+}
+
+// Initialize on page load to handle prefilled data
 document.addEventListener('DOMContentLoaded', function() {
-    // SweetAlert for server-side registration messages
-    const serverMessages = <?php echo json_encode($swal_messages, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>;
-    if (Array.isArray(serverMessages) && serverMessages.length > 0 && typeof Swal !== 'undefined') {
-        const allText = serverMessages.join('\n');
-        const isSuccess = serverMessages.some(msg => msg.toLowerCase().includes('registered successfully'));
-
-        if (isSuccess) {
-            Swal.fire({
-                icon: 'success',
-                title: 'Registration Successful',
-                text: allText,
-                confirmButtonColor: '#27ae60'
-            }).then(() => {
-                // Redirect to home after user acknowledges success (user is auto-logged in)
-                window.location.href = 'home.php';
-            });
-        } else {
-            // Show errors in a list
-            const htmlList = '<ul style="text-align:left; margin:0; padding-left:1.2rem;">' +
-                serverMessages.map(m => '<li>' + String(m).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</li>').join('') +
-                '</ul>';
-            Swal.fire({
-                icon: 'error',
-                title: 'Registration Failed',
-                html: htmlList,
-                confirmButtonColor: '#e74c3c'
-            });
-        }
-    }
-    const form = document.getElementById('registerForm');
-    const nameInput = document.getElementById('name');
-    const emailInput = document.getElementById('email');
-    const phoneInput = document.getElementById('phone');
-    const addressInput = document.getElementById('address');
-    const passInput = document.getElementById('pass');
-    const cpassInput = document.getElementById('cpass');
-
-    // Real-time validation functions
-    function validateName() {
-        const name = nameInput.value.trim();
-        const nameError = document.getElementById('nameError');
-        
-        if (name === '') {
-            nameError.textContent = 'Name is required!';
-            nameInput.classList.add('error');
-            return false;
-        } else if (name.length < 3) {
-            nameError.textContent = 'Name must be at least 3 characters long!';
-            nameInput.classList.add('error');
-            return false;
-        } else if (name.length > 20) {
-            nameError.textContent = 'Name cannot exceed 20 characters!';
-            nameInput.classList.add('error');
-            return false;
-        } else if (!/^[a-zA-Z\s]+$/.test(name)) {
-            nameError.textContent = 'Name can only contain letters and spaces!';
-            nameInput.classList.add('error');
-            return false;
-        } else {
-            nameError.textContent = '';
-            nameInput.classList.remove('error');
-            return true;
-        }
-    }
-
-    function validateEmail() {
-        const email = emailInput.value.trim();
-        const emailError = document.getElementById('emailError');
-        // Allow common email characters, require at least one letter before @, capture domain and TLD
-        const emailRegex = /^(?=[^@]*[A-Za-z])[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+)\.([A-Za-z]{2,10})$/;
-        
-        if (email === '') {
-            emailError.textContent = 'Email is required!';
-            emailInput.classList.add('error');
-            return false;
-        } else if (email.length > 50) {
-            emailError.textContent = 'Email cannot exceed 50 characters!';
-            emailInput.classList.add('error');
-            return false;
-        }
-
-        const match = email.match(emailRegex);
-        if (!match) {
-            emailError.textContent = 'Please enter a valid email address (for example: name@example.com)!';
-            emailInput.classList.add('error');
-            return false;
-        }
-
-        const domainName = match[1].toLowerCase();
-        const tld = match[2].toLowerCase();
-        if (domainName === tld) {
-            emailError.textContent = 'Email domain and extension cannot be identical (e.g. abc@abc.abc is not allowed)!';
-            emailInput.classList.add('error');
-            return false;
-        }
-
-        emailError.textContent = '';
-        emailInput.classList.remove('error');
-        return true;
-    }
-
-    function validatePhone() {
-        const phone = phoneInput.value.trim();
-        const phoneError = document.getElementById('phoneError');
-        
-        if (phone === '') {
-            phoneError.textContent = 'Phone number is required!';
-            phoneInput.classList.add('error');
-            return false;
-        } else if (!/^9\d{9}$/.test(phone)) {
-            phoneError.textContent = 'Phone number must be exactly 10 digits and start with 9!';
-            phoneInput.classList.add('error');
-            return false;
-        } else if (/(\d)\1{4,}/.test(phone)) {
-            phoneError.textContent = 'Phone number cannot contain more than 4 identical digits in a row!';
-            phoneInput.classList.add('error');
-            return false;
-        } else {
-            phoneError.textContent = '';
-            phoneInput.classList.remove('error');
-            return true;
-        }
-    }
-
-    function validateAddress() {
-        const address = addressInput.value.trim();
-        const addressError = document.getElementById('addressError');
-        
-        if (address === '') {
-            addressError.textContent = 'Address is required!';
-            addressInput.classList.add('error');
-            return false;
-        } else if (address.length < 5) {
-            addressError.textContent = 'Address must be at least 5 characters long!';
-            addressInput.classList.add('error');
-            return false;
-        } else if (address.length > 255) {
-            addressError.textContent = 'Address cannot exceed 255 characters!';
-            addressInput.classList.add('error');
-            return false;
-        } else {
-            addressError.textContent = '';
-            addressInput.classList.remove('error');
-            return true;
-        }
-    }
-
-    function validatePassword() {
-        const password = passInput.value;
-        const passError = document.getElementById('passError');
-        const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/;
-        
-        if (password === '') {
-            passError.textContent = 'Password is required!';
-            passInput.classList.add('error');
-            return false;
-        } else if (password.length < 6) {
-            passError.textContent = 'Password must be at least 6 characters long!';
-            passInput.classList.add('error');
-            return false;
-        } else if (password.length > 20) {
-            passError.textContent = 'Password cannot exceed 20 characters!';
-            passInput.classList.add('error');
-            return false;
-        } else if (!passwordRegex.test(password)) {
-            passError.textContent = 'Password must contain at least one uppercase letter, one lowercase letter, and one number!';
-            passInput.classList.add('error');
-            return false;
-        } else {
-            passError.textContent = '';
-            passInput.classList.remove('error');
-            return true;
-        }
-    }
-
-    function validateConfirmPassword() {
-        const password = passInput.value;
-        const confirmPassword = cpassInput.value;
-        const cpassError = document.getElementById('cpassError');
-        
-        if (confirmPassword === '') {
-            cpassError.textContent = 'Please confirm your password!';
-            cpassInput.classList.add('error');
-            return false;
-        } else if (password !== confirmPassword) {
-            cpassError.textContent = 'Passwords do not match!';
-            cpassInput.classList.add('error');
-            return false;
-        } else {
-            cpassError.textContent = '';
-            cpassInput.classList.remove('error');
-            return true;
-        }
-    }
-
-    // Add event listeners for real-time validation
-    nameInput.addEventListener('blur', validateName);
-    nameInput.addEventListener('input', function() {
-        if (this.classList.contains('error')) {
-            validateName();
-        }
-    });
-
-    emailInput.addEventListener('blur', validateEmail);
-    emailInput.addEventListener('input', function() {
-        if (this.classList.contains('error')) {
-            validateEmail();
-        }
-    });
-
-    phoneInput.addEventListener('blur', validatePhone);
-    phoneInput.addEventListener('input', function() {
-        if (this.classList.contains('error')) {
-            validatePhone();
-        }
-    });
-
-    addressInput.addEventListener('blur', validateAddress);
-    addressInput.addEventListener('input', function() {
-        if (this.classList.contains('error')) {
-            validateAddress();
-        }
-    });
-
-    passInput.addEventListener('blur', validatePassword);
-    passInput.addEventListener('input', function() {
-        if (this.classList.contains('error')) {
-            validatePassword();
-        }
-        // Also validate confirm password when password changes
-        if (cpassInput.value) {
-            validateConfirmPassword();
-        }
-    });
-
-    cpassInput.addEventListener('blur', validateConfirmPassword);
-    cpassInput.addEventListener('input', function() {
-        if (this.classList.contains('error')) {
-            validateConfirmPassword();
-        }
-    });
-
-    // Form submission validation
-    form.addEventListener('submit', function(e) {
-        const isNameValid = validateName();
-        const isEmailValid = validateEmail();
-        const isPhoneValid = validatePhone();
-        const isAddressValid = validateAddress();
-        const isPasswordValid = validatePassword();
-        const isConfirmPasswordValid = validateConfirmPassword();
-
-        if (!isNameValid || !isEmailValid || !isPhoneValid || !isAddressValid || !isPasswordValid || !isConfirmPasswordValid) {
-            e.preventDefault();
-            return false;
-        }
-    });
-
-    // Password strength indicator
-    passInput.addEventListener('input', function() {
-        const password = this.value;
-        const strength = getPasswordStrength(password);
-        updatePasswordStrengthIndicator(strength);
-    });
-
-    function getPasswordStrength(password) {
-        let strength = 0;
-        
-        if (password.length >= 6) strength++;
-        if (password.length >= 8) strength++;
-        if (/[a-z]/.test(password)) strength++;
-        if (/[A-Z]/.test(password)) strength++;
-        if (/\d/.test(password)) strength++;
-        if (/[^A-Za-z0-9]/.test(password)) strength++;
-        
-        return strength;
-    }
-
-    function updatePasswordStrengthIndicator(strength) {
-        const passError = document.getElementById('passError');
-        let message = '';
-        let color = '';
-        
-        if (strength < 3) {
-            message = 'Weak password';
-            color = '#e74c3c';
-        } else if (strength < 5) {
-            message = 'Medium password';
-            color = '#f39c12';
-        } else {
-            message = 'Strong password';
-            color = '#27ae60';
-        }
-        
-        if (passInput.value && !passInput.classList.contains('error')) {
-            passError.textContent = message;
-            passError.style.color = color;
-        }
-    }
+   var state = document.getElementById("state").value;
+   if(state) {
+      updateCities();
+      var prefilledCity = "<?= htmlspecialchars($_POST['city'] ?? ($prefill['city'] ?? '')); ?>";
+      if(prefilledCity) {
+         document.getElementById("city").value = prefilledCity;
+      }
+   }
 });
 </script>
-
-<style>
-/* Error styling */
-.error-message {
-    color: #e74c3c;
-    font-size: 1.2rem;
-    margin-top: 0.5rem;
-    margin-bottom: 1rem;
-    min-height: 1.8rem;
-}
-
-.box.error {
-    border-color: #e74c3c !important;
-    box-shadow: 0 0 0 2px rgba(231, 76, 60, 0.2) !important;
-}
-
-.box:focus.error {
-    border-color: #e74c3c !important;
-    box-shadow: 0 0 0 2px rgba(231, 76, 60, 0.2) !important;
-}
-</style>
 
 </body>
 </html>
