@@ -409,11 +409,23 @@ if(isset($_POST['order'])){
          </div>
          <div class="inputBox">
             <span>City :</span>
-            <input type="text" name="city" placeholder="Kathmandu" class="box" maxlength="50" value="<?= htmlspecialchars($_POST['city'] ?? ($prefill['city'] ?? '')); ?>" required>
+            <select name="city" id="city" class="box" required>
+               <option value="">Select City</option>
+            </select>
          </div>
          <div class="inputBox">
             <span>Province:</span>
-            <input type="text" name="state" placeholder="Bagmati" class="box" maxlength="50" value="<?= htmlspecialchars($_POST['state'] ?? ($prefill['state'] ?? '')); ?>" required>
+            <?php $selected_state = $_POST['state'] ?? ($prefill['state'] ?? ''); ?>
+            <select name="state" id="state" class="box" onchange="updateCities()" required>
+               <option value="">Select Province</option>
+               <option value="Koshi" <?= $selected_state == 'Koshi' ? 'selected' : ''; ?>>Koshi Province</option>
+               <option value="Madhesh" <?= $selected_state == 'Madhesh' ? 'selected' : ''; ?>>Madhesh Province</option>
+               <option value="Bagmati" <?= $selected_state == 'Bagmati' ? 'selected' : ''; ?>>Bagmati Province</option>
+               <option value="Gandaki" <?= $selected_state == 'Gandaki' ? 'selected' : ''; ?>>Gandaki Province</option>
+               <option value="Lumbini" <?= $selected_state == 'Lumbini' ? 'selected' : ''; ?>>Lumbini Province</option>
+               <option value="Karnali" <?= $selected_state == 'Karnali' ? 'selected' : ''; ?>>Karnali Province</option>
+               <option value="Sudurpashchim" <?= $selected_state == 'Sudurpashchim' ? 'selected' : ''; ?>>Sudurpashchim Province</option>
+            </select>
          </div>
          <div class="inputBox">
             <span>Country :</span>
@@ -432,6 +444,43 @@ if(isset($_POST['order'])){
 </section>
 
 <script src="js/script.js"></script>
+
+<script>
+function updateCities() {
+   var cities = {
+      Koshi:["Biratnagar","Dharan","Itahari","Bhadrapur"],
+      Madhesh:["Janakpur","Birgunj","Kalaiya","Lahan"],
+      Bagmati:["Kathmandu","Lalitpur","Bhaktapur","Bharatpur","Hetauda"],
+      Gandaki:["Pokhara","Baglung","Gorkha","Besisahar"],
+      Lumbini:["Butwal","Bhairahawa","Nepalgunj","Tulsipur"],
+      Karnali:["Birendranagar","Jumla","Dailekh"],
+      Sudurpashchim:["Dhangadhi","Tikapur","Mahendranagar"]
+   };
+   var state = document.getElementById("state").value;
+   var citySelect = document.getElementById("city");
+   citySelect.innerHTML = '<option value="">Select City</option>';
+   if(cities[state]){
+      cities[state].forEach(function(city){
+         var opt = document.createElement("option");
+         opt.value = city;
+         opt.textContent = city;
+         citySelect.appendChild(opt);
+      });
+   }
+}
+
+// Initialize on page load to handle prefilled data
+document.addEventListener('DOMContentLoaded', function() {
+   var state = document.getElementById("state").value;
+   if(state) {
+      updateCities();
+      var prefilledCity = "<?= htmlspecialchars($_POST['city'] ?? ($prefill['city'] ?? '')); ?>";
+      if(prefilledCity) {
+         document.getElementById("city").value = prefilledCity;
+      }
+   }
+});
+</script>
 
 </body>
 </html>
