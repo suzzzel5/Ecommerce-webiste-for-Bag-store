@@ -1,20 +1,93 @@
 <?php
 
+// Start session first
+session_start();
+
+// Include database connection
 include '../components/connect.php';
 
-session_start();
+// Validate database connection
+if(!isset($conn) || !$conn){
+   die('Database connection failed. Please contact the administrator.');
+}
+
+// Strict admin session validation
+if(!isset($_SESSION['admin_id']) || empty($_SESSION['admin_id'])){
+   header('location:admin_login.php');
+   exit();
+}
 
 $admin_id = $_SESSION['admin_id'];
 
-if(!isset($admin_id)){
+// Validate admin_id is numeric and positive
+if(!is_numeric($admin_id) || $admin_id <= 0 || !filter_var($admin_id, FILTER_VALIDATE_INT)){
+   session_destroy();
    header('location:admin_login.php');
-};
+   exit();
+}
 
+// Verify admin exists in database
+$verify_admin = $conn->prepare("SELECT id FROM `admins` WHERE id = ? LIMIT 1");
+$verify_admin->execute([$admin_id]);
+
+if($verify_admin->rowCount() === 0){
+   session_destroy();
+   header('location:admin_login.php');
+   exit();
+}
+
+// Strict validation for delete operation
 if(isset($_GET['delete'])){
+   // Validate delete parameter exists and is not empty
+   if(empty($_GET['delete']) || !isset($_GET['delete'])){
+      header('location:messages.php?error=invalid_delete_parameter');
+      exit();
+   }
+   
    $delete_id = $_GET['delete'];
-   $delete_message = $conn->prepare("DELETE FROM `messages` WHERE id = ?");
-   $delete_message->execute([$delete_id]);
-   header('location:messages.php');
+   
+   // Validate delete_id is numeric and positive integer
+   if(!is_numeric($delete_id) || $delete_id <= 0 || !filter_var($delete_id, FILTER_VALIDATE_INT)){
+      header('location:messages.php?error=invalid_message_id');
+      exit();
+   }
+   
+   // Cast to integer for safety
+   $delete_id = (int)$delete_id;
+   
+   // Validate delete_id is within reasonable range (prevent extremely large numbers)
+   if($delete_id > 2147483647 || $delete_id < 1){
+      header('location:messages.php?error=invalid_message_id_range');
+      exit();
+   }
+   
+   // Verify message exists before deletion
+   $check_message = $conn->prepare("SELECT id FROM `messages` WHERE id = ? LIMIT 1");
+   $check_message->execute([$delete_id]);
+   
+   if($check_message->rowCount() === 0){
+      header('location:messages.php?error=message_not_found');
+      exit();
+   }
+   
+   // Perform deletion with error handling
+   try {
+      $delete_message = $conn->prepare("DELETE FROM `messages` WHERE id = ?");
+      $delete_result = $delete_message->execute([$delete_id]);
+      
+      if($delete_result && $delete_message->rowCount() > 0){
+         header('location:messages.php?success=message_deleted');
+         exit();
+      } else {
+         header('location:messages.php?error=delete_failed');
+         exit();
+      }
+   } catch(PDOException $e){
+      // Log error (in production, log to file instead of exposing)
+      error_log("Delete message error: " . $e->getMessage());
+      header('location:messages.php?error=database_error');
+      exit();
+   }
 }
 
 ?>
@@ -285,13 +358,60 @@ if(isset($_GET['delete'])){
    <h1 class="heading">Customer Messages</h1>
 
    <?php
-      $select_messages = $conn->prepare("SELECT * FROM `messages` ORDER BY id DESC");
-      $select_messages->execute();
-      $message_count = $select_messages->rowCount();
+      // Display error/success messages
+      if(isset($_GET['error'])){
+         $error_msg = '';
+         switch($_GET['error']){
+            case 'invalid_delete_parameter':
+               $error_msg = 'Invalid delete parameter provided.';
+               break;
+            case 'invalid_message_id':
+               $error_msg = 'Invalid message ID format.';
+               break;
+            case 'invalid_message_id_range':
+               $error_msg = 'Message ID is out of valid range.';
+               break;
+            case 'message_not_found':
+               $error_msg = 'Message not found in database.';
+               break;
+            case 'delete_failed':
+               $error_msg = 'Failed to delete message. Please try again.';
+               break;
+            case 'database_error':
+               $error_msg = 'Database error occurred. Please contact administrator.';
+               break;
+            default:
+               $error_msg = 'An error occurred.';
+         }
+         echo '<div style="background: #e74c3c; color: white; padding: 1.5rem; margin: 2rem auto; max-width: 1400px; border-radius: 10px; text-align: center; font-size: 1.6rem; font-weight: 600;">
+                  <i class="fas fa-exclamation-circle"></i> ' . htmlspecialchars($error_msg, ENT_QUOTES, 'UTF-8') . '
+               </div>';
+      }
+      
+      if(isset($_GET['success'])){
+         if($_GET['success'] === 'message_deleted'){
+            echo '<div style="background: #27ae60; color: white; padding: 1.5rem; margin: 2rem auto; max-width: 1400px; border-radius: 10px; text-align: center; font-size: 1.6rem; font-weight: 600;">
+                     <i class="fas fa-check-circle"></i> Message deleted successfully!
+                  </div>';
+         }
+      }
+      
+      // Fetch messages with error handling
+      try {
+         $select_messages = $conn->prepare("SELECT * FROM `messages` ORDER BY id DESC");
+         $select_messages->execute();
+         $message_count = $select_messages->rowCount();
+      } catch(PDOException $e){
+         error_log("Fetch messages error: " . $e->getMessage());
+         $message_count = 0;
+         echo '<div style="background: #e74c3c; color: white; padding: 1.5rem; margin: 2rem auto; max-width: 1400px; border-radius: 10px; text-align: center; font-size: 1.6rem; font-weight: 600;">
+                  <i class="fas fa-exclamation-circle"></i> Error loading messages. Please refresh the page.
+               </div>';
+      }
    ?>
    
    <div class="message-counter">
-      <i class="fas fa-envelope"></i> <?= $message_count ?> Messages
+      <i class="fas fa-envelope"></i> <?= htmlspecialchars((int)$message_count, ENT_QUOTES, 'UTF-8'); ?> Messages
    </div>
 
    <div class="box-container">
@@ -299,16 +419,31 @@ if(isset($_GET['delete'])){
       <?php
          if($message_count > 0){
             while($fetch_message = $select_messages->fetch(PDO::FETCH_ASSOC)){
+               // Sanitize all output data
+               $message_id = isset($fetch_message['id']) && is_numeric($fetch_message['id']) ? (int)$fetch_message['id'] : 0;
+               $message_name = isset($fetch_message['name']) ? htmlspecialchars(trim($fetch_message['name']), ENT_QUOTES, 'UTF-8') : 'Unknown';
+               $message_email = isset($fetch_message['email']) ? htmlspecialchars(trim($fetch_message['email']), ENT_QUOTES, 'UTF-8') : 'N/A';
+               $message_user_id = isset($fetch_message['user_id']) && is_numeric($fetch_message['user_id']) ? (int)$fetch_message['user_id'] : 0;
+               $message_number = isset($fetch_message['number']) ? htmlspecialchars(trim($fetch_message['number']), ENT_QUOTES, 'UTF-8') : 'N/A';
+               $message_content = isset($fetch_message['message']) ? htmlspecialchars(trim($fetch_message['message']), ENT_QUOTES, 'UTF-8') : 'No message content';
+               
+               // Validate message_id before displaying
+               if($message_id <= 0){
+                  continue; // Skip invalid messages
+               }
+               
+               // Get first character for avatar (sanitized)
+               $avatar_char = !empty($message_name) ? strtoupper(substr($message_name, 0, 1)) : '?';
       ?>
       <div class="box">
          <div class="message-header">
             <div class="user-info">
                <div class="user-avatar">
-                  <?= strtoupper(substr($fetch_message['name'], 0, 1)); ?>
+                  <?= $avatar_char; ?>
                </div>
                <div class="user-details">
-                  <h4><?= $fetch_message['name']; ?></h4>
-                  <div class="email"><?= $fetch_message['email']; ?></div>
+                  <h4><?= $message_name; ?></h4>
+                  <div class="email"><?= $message_email; ?></div>
                </div>
             </div>
          </div>
@@ -316,19 +451,19 @@ if(isset($_GET['delete'])){
          <div class="message-meta">
             <div class="meta-item">
                <div class="label">User ID</div>
-               <div class="value">#<?= $fetch_message['user_id']; ?></div>
+               <div class="value">#<?= $message_user_id; ?></div>
             </div>
             <div class="meta-item">
                <div class="label">Phone</div>
-               <div class="value"><?= $fetch_message['number']; ?></div>
+               <div class="value"><?= $message_number; ?></div>
             </div>
          </div>
          
          <div class="message-content">
-            <p><?= $fetch_message['message']; ?></p>
+            <p><?= nl2br($message_content); ?></p>
          </div>
          
-         <a href="messages.php?delete=<?= $fetch_message['id']; ?>" 
+         <a href="messages.php?delete=<?= $message_id; ?>" 
             onclick="return confirm('Are you sure you want to delete this message?');" 
             class="delete-btn">
             <i class="fas fa-trash"></i> Delete Message
