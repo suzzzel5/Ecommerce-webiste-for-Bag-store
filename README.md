@@ -2,7 +2,7 @@ Build and refine a PHP/MySQL e‑commerce web app (XAMPP, PDO) with user and adm
 
 ## Live Demo
 Production URL:  
-[https://yourdomain.infinityfreeapp.co](https://sujalnexus.rf.gd/?i=1)
+(https://sujalnexus.rf.gd/?i=1)
 
 Key requirements:
 Tech: PHP 7+/PDO, MySQL, HTML/CSS/JS, Font Awesome, Chart.js; session-based auth; secure queries.
